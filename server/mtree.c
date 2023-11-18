@@ -6,8 +6,8 @@
 
 static const mtree_node_t *null_blk(void)
 {
-	static mtree_node_t	node;
-	const mtree_node_t *	ptr = NULL;
+	static mtree_node_t		node;
+	static const mtree_node_t *	ptr = NULL;
 
 	if (ptr == NULL)
 	{
