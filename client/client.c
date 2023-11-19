@@ -10,8 +10,10 @@
 #include <sodium.h>
 #include <blk.h>
 #include <cmd.h>
+#include "mtree.h"
 
 #define KEY_LEN	blk_crypto(_KEYBYTES)
+#define HASH_CHAIN_MAX_LEN 128
 
 static int			c_sock		= -1;
 static struct sockaddr_in	c_addr;
@@ -131,6 +133,37 @@ int client_read_blk(blk_t *blk, blk_id_t id)
 		return -1;
 	}
 
+    char blk_hash[MTREE_HASH_LEN];
+    crypto_generichash((void *) blk_hash,
+                       sizeof(blk_hash),
+                       (const void *) blk,
+                       sizeof(*blk),
+                       NULL,
+                       0);
+
+    char chain[MTREE_HASH_LEN * HASH_CHAIN_MAX_LEN];
+    int chainlen = 0; // ???
+
+    ret = recv(c_sock, chain, chainlen, 0);
+    if (ret != chainlen)
+    {
+        perror("error: recv");
+        return -1;
+    }
+
+    char hash[MTREE_HASH_LEN];
+    compute_chain(hash,
+                  blk_hash,
+                  chain,
+                  chainlen);
+
+    ret = verify_hash(hash);
+    if (ret != 0)
+    {
+        perror("error: verify_hash");
+        return -1;
+    }
+
 	ret = blk_decrypt(
 		(void *) blk->data, NULL,
 		NULL,
@@ -172,6 +205,14 @@ int client_write_blk(blk_t *blk, blk_id_t id)
 		(void *) blk->salt,
 		(void *) c_key);
 
+    char blk_hash[MTREE_HASH_LEN];
+    crypto_generichash((void *) blk_hash,
+                       sizeof(blk_hash),
+                       (const void *) blk,
+                       sizeof(*blk),
+                       NULL,
+                       0);
+
 	ret = send(c_sock, blk, sizeof*(blk), 0);
 	if (ret != sizeof*(blk))
 	{
@@ -179,5 +220,117 @@ int client_write_blk(blk_t *blk, blk_id_t id)
 		return -1;
 	}
 
+    char chain[MTREE_HASH_LEN * HASH_CHAIN_MAX_LEN];
+    int chain_len = 0; // ???
+
+    ret = recv(c_sock, chain, chain_len, 0);
+    if (ret != chainlen)
+    {
+        perror("error: recv");
+        return -1;
+    }
+
+    char hash[MTREE_HASH_LEN];
+    compute_chain(hash,
+                  blk_hash,
+                  chain,
+                  chain_len);
+
+    ret = update_hash(hash);
+    if (ret != 0)
+    {
+        perror("error: update_hash");
+        return -1;
+    }
+
 	return 0;
+}
+
+int update_hash(char *hash)
+{
+    FILE *f;
+    char buf[MTREE_HASH_LEN];
+
+    f = fopen("hash", "wb");
+
+    if (f == NULL)
+    {
+        perror("error: fopen");
+        return -1;
+    }
+
+    ret = fwrite(hash,
+                MTREE_HASH_LEN,
+                1,
+                f);
+    fclose(f);
+
+    if (ret != 1)
+    {
+        perror("error: fwrite");
+        return -1;
+    }
+
+    return 0;
+}
+
+int verify_hash(char *hash)
+{
+    FILE *f;
+    char buf[MTREE_HASH_LEN];
+
+    f = fopen("hash", "rb");
+
+    if (f == NULL)
+    {
+        perror("error: fopen");
+        return -1;
+    }
+
+    ret = fread(buf,
+                sizeof(buf),
+                1,
+                f);
+    fclose(f);
+
+    if (ret != 1)
+    {
+        perror("error: fread");
+        return -1;
+    }
+
+    ret = memcmp(buf, hash, sizeof(buf));
+    if (ret != 0)
+    {
+        // possibly corrupted
+        perror("error: memcmp");
+        return -1;
+    }
+
+    return 0;
+}
+
+void compute_chain(char *out, char *in, char *chain, size_t len)
+{
+    char buf[MTREE_HASH_LEN * 2];
+
+    memcpy(buf, in, MTREE_HASH_LEN);
+
+    for (int i = 0; i < len; i++)
+    {
+        memcpy(buf + MTREE_HASH_LEN,
+               chain + i * MTREE_HASH_LEN,
+               MTREE_HASH_LEN);
+
+        crypto_generichash(out,
+                           MTREE_HASH_LEN,
+                           buf,
+                           MTREE_HASH_LEN * 2,
+                           NULL,
+                           0);
+
+        memcpy(buf,
+               out,
+               MTREE_HASH_LEN);
+    }
 }
