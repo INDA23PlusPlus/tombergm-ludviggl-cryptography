@@ -15,12 +15,12 @@
 #define KEY_LEN	blk_crypto(_KEYBYTES)
 #define HASH_CHAIN_MAX_LEN 128
 
-static int			c_sock		= -1;
-static struct sockaddr_in	c_addr;
-static socklen_t		c_addrlen;
+static int			      c_sock = -1;
+static struct sockaddr_in c_addr;
+static socklen_t          c_addrlen;
 
-static char			c_key[KEY_LEN];
-static char			c_salt[BLK_SALT_LEN];
+static char			      c_key[KEY_LEN];
+static char			      c_salt[BLK_SALT_LEN];
 
 int client_start(void)
 {
