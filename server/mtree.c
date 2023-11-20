@@ -78,3 +78,38 @@ void mtree_set_blk(mtree_t *mtree, blk_id_t blk_id, const blk_t *blk)
 		mtree_update_node(mtree, mtree_parent(node_id));
 	}
 }
+
+int mtree_send_chain(mtree_t *mtree, int sock, blk_id_t blk_id)
+{
+    int ret;
+    blk_id_t node_id;
+
+    node_id = mtree_blk(mtree, blk_id);
+    sibling = mtree->nodes[mtree_sibling(node_id)].hash;
+
+    while (1)
+    {
+        if (node_id == 0)
+        {
+            ret = send(sock, hash, MTREE_HASH_LEN, 0);
+            if (ret != MTREE_HASH_LEN)
+            {
+                perror("error: send");
+                return -1;
+            }
+            return 0;
+        }
+
+        ret = send(sock, hash, MTREE_HASH_LEN, MSG_MORE);
+        if (ret != MTREE_HASH_LEN)
+        {
+            perror("error: send");
+            return -1;
+        }
+
+        sibling = mtree->nodes[mtree_sibling(node_id)].hash;
+        node_id = mtree_parent(node_id);
+    }
+
+    return 0;
+}
