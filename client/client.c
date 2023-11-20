@@ -22,6 +22,10 @@ static socklen_t          c_addrlen;
 static char			      c_key[KEY_LEN];
 static char			      c_salt[BLK_SALT_LEN];
 
+static int update_hash(char *hash);
+static int verify_hash(char *hash);
+static void compute_chain(unsigned char *out, char *in, char *chain, size_t len);
+
 int client_start(void)
 {
 	int			ret		= 0;
@@ -246,7 +250,7 @@ int client_write_blk(blk_t *blk, blk_id_t id)
 	return 0;
 }
 
-int update_hash(char *hash)
+static int update_hash(char *hash)
 {
     FILE *f;
     char buf[MTREE_HASH_LEN];
@@ -274,7 +278,7 @@ int update_hash(char *hash)
     return 0;
 }
 
-int verify_hash(char *hash)
+static int verify_hash(char *hash)
 {
     FILE *f;
     char buf[MTREE_HASH_LEN];
@@ -310,7 +314,7 @@ int verify_hash(char *hash)
     return 0;
 }
 
-void compute_chain(char *out, char *in, char *chain, size_t len)
+static void compute_chain(unsigned char *out, char *in, char *chain, size_t len)
 {
     char buf[MTREE_HASH_LEN * 2];
 
