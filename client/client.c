@@ -228,7 +228,7 @@ int client_write_blk(blk_t *blk, blk_id_t id)
     int chain_len = 0; // ???
 
     ret = recv(c_sock, chain, chain_len, 0);
-    if (ret != chainlen)
+    if (ret != chain_len)
     {
         perror("error: recv");
         return -1;
