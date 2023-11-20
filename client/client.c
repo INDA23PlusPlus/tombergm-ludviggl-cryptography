@@ -252,8 +252,8 @@ int client_write_blk(blk_t *blk, blk_id_t id)
 
 static int update_hash(char *hash)
 {
+    int ret;
     FILE *f;
-    char buf[MTREE_HASH_LEN];
 
     f = fopen("hash", "wb");
 
@@ -280,6 +280,7 @@ static int update_hash(char *hash)
 
 static int verify_hash(char *hash)
 {
+    int ret;
     FILE *f;
     char buf[MTREE_HASH_LEN];
 
