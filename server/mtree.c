@@ -3,6 +3,7 @@
 #include <sodium.h>
 #include <blk.h>
 #include <mtree.h>
+#include <sys/socket.h>
 
 static const mtree_node_t *null_blk(void)
 {
@@ -82,10 +83,11 @@ void mtree_set_blk(mtree_t *mtree, blk_id_t blk_id, const blk_t *blk)
 int mtree_send_chain(mtree_t *mtree, int sock, blk_id_t blk_id)
 {
     int ret;
+    char *hash;
     blk_id_t node_id;
 
     node_id = mtree_blk(mtree, blk_id);
-    sibling = mtree->nodes[mtree_sibling(node_id)].hash;
+    hash = mtree->nodes[mtree_sibling(mtree, node_id)].hash;
 
     while (1)
     {
@@ -107,7 +109,7 @@ int mtree_send_chain(mtree_t *mtree, int sock, blk_id_t blk_id)
             return -1;
         }
 
-        sibling = mtree->nodes[mtree_sibling(node_id)].hash;
+        hash = mtree->nodes[mtree_sibling(mtree, node_id)].hash;
         node_id = mtree_parent(node_id);
     }
 
