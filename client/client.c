@@ -24,7 +24,7 @@ static char			      c_salt[BLK_SALT_LEN];
 
 static int update_hash(char *hash);
 static int verify_hash(char *hash);
-static void compute_chain(unsigned char *out, char *in, char *chain, size_t len);
+static void compute_chain(char *out, char *in, char *chain, size_t len, blk_id_t blk_id);
 
 int client_start(void)
 {
@@ -159,7 +159,8 @@ int client_read_blk(blk_t *blk, blk_id_t id)
     compute_chain(hash,
                   blk_hash,
                   chain,
-                  chainlen);
+                  chain_len,
+                  id);
 
     ret = verify_hash(hash);
     if (ret != 0)
@@ -238,7 +239,8 @@ int client_write_blk(blk_t *blk, blk_id_t id)
     compute_chain(hash,
                   blk_hash,
                   chain,
-                  chain_len);
+                  chain_len,
+                  id);
 
     ret = update_hash(hash);
     if (ret != 0)
@@ -315,15 +317,35 @@ static int verify_hash(char *hash)
     return 0;
 }
 
-static void compute_chain(unsigned char *out, char *in, char *chain, size_t len)
+static void compute_chain(char *out, char *in, char *chain, size_t len, blk_id_t blk_id)
 {
     char buf[MTREE_HASH_LEN * 2];
+    blk_id_t node_id;
+    size_t prev_offset, chain_offset;
 
-    memcpy(buf, in, MTREE_HASH_LEN);
+    node_id = mtree_blk_from_depth(MTREE_DEPTH, blk_id);
+
+    memcpy(out, in, MTREE_HASH_LEN);
 
     for (int i = 0; i < len; i++)
     {
-        memcpy(buf + MTREE_HASH_LEN,
+        // VERIFIERA DETTA !
+        if (node_id % 2 == 0)
+        {
+            prev_offset = MTREE_HASH_LEN;
+            chain_offset = 0;
+        }
+        else
+        {
+            prev_offset = 0;
+            chain_offset = MTREE_HASH_LEN;
+        }
+
+        memcpy(buf + prev_offset,
+               out,
+               MTREE_HASH_LEN);
+
+        memcpy(buf + chain_offset,
                chain + i * MTREE_HASH_LEN,
                MTREE_HASH_LEN);
 
@@ -334,8 +356,6 @@ static void compute_chain(unsigned char *out, char *in, char *chain, size_t len)
                            NULL,
                            0);
 
-        memcpy(buf,
-               out,
-               MTREE_HASH_LEN);
+        node_id = mtree_parent(node_id);
     }
 }
