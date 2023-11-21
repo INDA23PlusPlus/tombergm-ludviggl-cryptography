@@ -3,12 +3,13 @@
 
 #include <stdint.h>
 #include <sodium.h>
+#include "fs.h"
 
 #define blk_crypto(d)	crypto_aead_aes256gcm ## d
 #define blk_encrypt	blk_crypto(_encrypt)
 #define blk_decrypt	blk_crypto(_decrypt)
 
-#define BLK_DATA_LEN	4096
+#define BLK_DATA_LEN	BLOCK_SIZE
 #define BLK_SALT_LEN	blk_crypto(_NPUBBYTES)
 #define BLK_AUTH_LEN	blk_crypto(_ABYTES)
 
