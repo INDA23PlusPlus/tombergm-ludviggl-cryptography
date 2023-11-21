@@ -90,7 +90,7 @@ static int cblk_fetch(cblk_t *cblk, blk_id_t id, client_t *cl)
 	return ret;
 }
 
-static cblk_t *cache_find_blk(const cache_t *cache, blk_id_t id)
+static cblk_t *cache_find_blk(cache_t *cache, blk_id_t id)
 {
 	for (int i = 0; i < cache->n_blk; i++)
 	{

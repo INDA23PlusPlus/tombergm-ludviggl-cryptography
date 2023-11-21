@@ -14,43 +14,6 @@
 #include "client.h"
 #include "mtree.h"
 
-static int verify_hash(char *hash)
-{
-    int ret;
-    FILE *f;
-    char buf[MTREE_HASH_LEN];
-
-    f = fopen("hash", "rb");
-
-    if (f == NULL)
-    {
-        perror("error: fopen");
-        return -1;
-    }
-
-    ret = fread(buf,
-                sizeof(buf),
-                1,
-                f);
-    fclose(f);
-
-    if (ret != 1)
-    {
-        perror("error: fread");
-        return -1;
-    }
-
-    ret = memcmp(buf, hash, sizeof(buf));
-    if (ret != 0)
-    {
-        // possibly corrupted
-        perror("error: memcmp");
-        return -1;
-    }
-
-    return 0;
-}
-
 static int update_hash(char *hash)
 {
     int ret;
@@ -79,13 +42,58 @@ static int update_hash(char *hash)
     return 0;
 }
 
-static int compute_top(client_t *cl, blk_t *blk, blk_id_t blk_id, char *hash)
+static int verify_hash(char *hash)
+{
+    int ret;
+    FILE *f;
+    char buf[MTREE_HASH_LEN];
+
+    f = fopen("hash", "rb");
+
+    if (f == NULL)
+    {
+        if (errno == ENOENT)
+	{
+            return update_hash(hash);
+	}
+        else
+        {
+            perror("error: fopen");
+            return -1;
+        }
+    }
+
+    ret = fread(buf,
+                sizeof(buf),
+                1,
+                f);
+    fclose(f);
+
+    if (ret != 1)
+    {
+        perror("error: fread");
+        return -1;
+    }
+
+    ret = memcmp(buf, hash, sizeof(buf));
+    if (ret != 0)
+    {
+        // possibly corrupted
+        perror("error: memcmp");
+        return -1;
+    }
+
+    return 0;
+}
+
+static int compute_top(client_t *cl, blk_t *blk, blk_id_t blk_id,
+			char (*hash)[MTREE_HASH_LEN])
 {
 	int		ret	= 0;
 	blk_id_t	node_id	= mtree_blk_from_depth(MTREE_DEPTH, blk_id);
 
-	crypto_generichash(	(void *)       hash, sizeof(hash),
-				(const void *) blk , sizeof*(blk),
+	crypto_generichash(	(void *)       hash, sizeof*(hash),
+				(const void *) blk , sizeof*(blk) ,
 				NULL               , 0);
 
 	while (node_id != 0)
@@ -103,14 +111,14 @@ static int compute_top(client_t *cl, blk_t *blk, blk_id_t blk_id, char *hash)
 
 		memcpy(pair[node_par], hash, sizeof*(pair));
 
-		crypto_generichash(	(void *) hash, sizeof(hash),
-					(void *) pair, sizeof(pair),
+		crypto_generichash(	(void *) hash, sizeof*(hash),
+					(void *) pair, sizeof (pair),
 					NULL         , 0);
 
 		node_id = mtree_parent(node_id);
 	}
 
-	return ret;
+	return 0;
 }
 
 int client_start(client_t *cl, const char *pw)
@@ -252,7 +260,7 @@ int client_rd_blk(client_t *cl, blk_t *blk, blk_id_t id)
 	}
 
 	char hash[MTREE_HASH_LEN];
-	ret = compute_top(cl, blk, id, hash);
+	ret = compute_top(cl, blk, id, &hash);
 	if (ret != 0)
 	{
 		return ret;
@@ -314,7 +322,7 @@ int client_wr_blk(client_t *cl, blk_t *blk, blk_id_t id)
 	}
 
 	char hash[MTREE_HASH_LEN];
-	ret = compute_top(cl, blk, id, hash);
+	ret = compute_top(cl, blk, id, &hash);
 	if (ret != 0)
 	{
 		return ret;

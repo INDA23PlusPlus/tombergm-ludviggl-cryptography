@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <stdio.h>
 #include <inttypes.h>
 #include <fcntl.h>
@@ -8,6 +9,36 @@
 #include <mtree.h>
 
 static mtree_t *	mtree;
+
+static int send_mtree(int sock, blk_id_t blk_id)
+{
+	int		ret	= 0;
+	blk_id_t	node_id	= mtree_blk(mtree, blk_id);
+
+	while (node_id != 0)
+	{
+		node_id = mtree_sibling(mtree, node_id);
+		mtree_node_t *node = &mtree->nodes[node_id];
+
+		ret = send(sock, node, sizeof*(node), MSG_MORE);
+		if (ret != sizeof*(node))
+		{
+			perror("error: send");
+			return -1;
+		}
+
+		node_id = mtree_parent(node_id);
+	}
+
+	ret = send(sock, NULL, 0, 0);
+	if (ret != 0)
+	{
+		perror("error: send");
+		return -1;
+	}
+
+	return ret;
+}
 
 static int server_rd_blk(int sock)
 {
@@ -45,6 +76,12 @@ static int server_rd_blk(int sock)
 	{
 		perror("error: send");
 		return -1;
+	}
+
+	ret = send_mtree(sock, id);
+	if (ret != 0)
+	{
+		return ret;
 	}
 
 	return 0;
@@ -89,7 +126,13 @@ static int server_wr_blk(int sock)
 
 	close(fd);
 
-	//mtree_set_blk(mtree, id, &blk);
+	mtree_set_blk(mtree, id, &blk);
+
+	ret = send_mtree(sock, id);
+	if (ret != 0)
+	{
+		return ret;
+	}
 
 	return 0;
 }
@@ -98,6 +141,15 @@ int server_run(int sock)
 {
 	int	ret;
 	cmd_t	cmd;
+
+	mtree = mtree_new(MTREE_DEPTH);
+
+	if (mtree == NULL)
+	{
+		errno = ENOMEM;
+		perror("error: mtree_new");
+		return -1;
+	}
 
 	for (;;)
 	{

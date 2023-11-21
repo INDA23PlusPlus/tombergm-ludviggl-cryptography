@@ -19,7 +19,7 @@ typedef struct cache
 {
 	client_t *	cl;
 	int		n_blk;
-	cblk_t *	blk;
+	cblk_t		blk[];
 } cache_t;
 
 cache_t *	cache_new(client_t *cl, int n_blk);
