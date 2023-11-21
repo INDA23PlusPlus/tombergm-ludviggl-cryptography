@@ -5,6 +5,7 @@
 #include <blk.h>
 
 #define MTREE_HASH_LEN	crypto_generichash_BYTES
+#define MTREE_DEPTH     8
 
 typedef struct
 {

@@ -89,7 +89,7 @@ int mtree_send_chain(mtree_t *mtree, int sock, blk_id_t blk_id)
     node_id = mtree_blk(mtree, blk_id);
     hash = mtree->nodes[mtree_sibling(mtree, node_id)].hash;
 
-    while (1)
+    for (;;)
     {
         if (node_id == 0)
         {

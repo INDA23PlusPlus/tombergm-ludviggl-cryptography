@@ -13,7 +13,7 @@
 #include "mtree.h"
 
 #define KEY_LEN	blk_crypto(_KEYBYTES)
-#define HASH_CHAIN_MAX_LEN 128
+#define CHAIN_LEN (MTREE_DEPTH - 1)
 
 static int			      c_sock = -1;
 static struct sockaddr_in c_addr;
@@ -145,11 +145,11 @@ int client_read_blk(blk_t *blk, blk_id_t id)
                        NULL,
                        0);
 
-    char chain[MTREE_HASH_LEN * HASH_CHAIN_MAX_LEN];
-    int chainlen = 0; // ???
+    char chain[MTREE_HASH_LEN * CHAIN_LEN];
+    int chain_len = CHAIN_LEN;
 
-    ret = recv(c_sock, chain, chainlen, 0);
-    if (ret != chainlen)
+    ret = recv(c_sock, chain, chain_len, 0);
+    if (ret != chain_len)
     {
         perror("error: recv");
         return -1;
@@ -224,8 +224,8 @@ int client_write_blk(blk_t *blk, blk_id_t id)
 		return -1;
 	}
 
-    char chain[MTREE_HASH_LEN * HASH_CHAIN_MAX_LEN];
-    int chain_len = 0; // ???
+    char chain[MTREE_HASH_LEN * CHAIN_LEN];
+    int chain_len = CHAIN_LEN;
 
     ret = recv(c_sock, chain, chain_len, 0);
     if (ret != chain_len)
