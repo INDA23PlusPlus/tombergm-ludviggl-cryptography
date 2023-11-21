@@ -14,12 +14,104 @@
 #include "client.h"
 #include "mtree.h"
 
-#define CHAIN_LEN (MTREE_DEPTH - 1)
+static int verify_hash(char *hash)
+{
+    int ret;
+    FILE *f;
+    char buf[MTREE_HASH_LEN];
 
-static int update_hash(char *hash);
-static int verify_hash(char *hash);
-static void compute_chain(char *out, char *in, char *chain, size_t len,
-				blk_id_t blk_id);
+    f = fopen("hash", "rb");
+
+    if (f == NULL)
+    {
+        perror("error: fopen");
+        return -1;
+    }
+
+    ret = fread(buf,
+                sizeof(buf),
+                1,
+                f);
+    fclose(f);
+
+    if (ret != 1)
+    {
+        perror("error: fread");
+        return -1;
+    }
+
+    ret = memcmp(buf, hash, sizeof(buf));
+    if (ret != 0)
+    {
+        // possibly corrupted
+        perror("error: memcmp");
+        return -1;
+    }
+
+    return 0;
+}
+
+static int update_hash(char *hash)
+{
+    int ret;
+    FILE *f;
+
+    f = fopen("hash", "wb");
+
+    if (f == NULL)
+    {
+        perror("error: fopen");
+        return -1;
+    }
+
+    ret = fwrite(hash,
+                MTREE_HASH_LEN,
+                1,
+                f);
+    fclose(f);
+
+    if (ret != 1)
+    {
+        perror("error: fwrite");
+        return -1;
+    }
+
+    return 0;
+}
+
+static int compute_top(client_t *cl, blk_t *blk, blk_id_t blk_id, char *hash)
+{
+	int		ret	= 0;
+	blk_id_t	node_id	= mtree_blk_from_depth(MTREE_DEPTH, blk_id);
+
+	crypto_generichash(	(void *)       hash, sizeof(hash),
+				(const void *) blk , sizeof*(blk),
+				NULL               , 0);
+
+	while (node_id != 0)
+	{
+		char pair[2][MTREE_HASH_LEN];
+		int node_par = (node_id ^ 1) & 1;
+
+		ret = recv(cl->sock, pair[node_par ^ 1], sizeof*(pair), 0);
+
+		if (ret != sizeof*(pair))
+		{
+			perror("error: recv");
+			return -1;
+		}
+
+		memcpy(pair[node_par], hash, sizeof*(pair));
+
+		crypto_generichash(	(void *) hash, sizeof(hash),
+					(void *) pair, sizeof(pair),
+					NULL         , 0);
+
+		node_id = mtree_parent(node_id);
+	}
+
+	return ret;
+}
 
 int client_start(client_t *cl, const char *pw)
 {
@@ -159,37 +251,19 @@ int client_rd_blk(client_t *cl, blk_t *blk, blk_id_t id)
 		return -1;
 	}
 
-    char blk_hash[MTREE_HASH_LEN];
-    crypto_generichash((void *) blk_hash,
-                       sizeof(blk_hash),
-                       (const void *) blk,
-                       sizeof(*blk),
-                       NULL,
-                       0);
+	char hash[MTREE_HASH_LEN];
+	ret = compute_top(cl, blk, id, hash);
+	if (ret != 0)
+	{
+		return ret;
+	}
 
-    char chain[MTREE_HASH_LEN * CHAIN_LEN];
-    int chain_len = CHAIN_LEN;
-
-    ret = recv(cl->sock, chain, chain_len, 0);
-    if (ret != chain_len)
-    {
-        perror("error: recv");
-        return -1;
-    }
-
-    char hash[MTREE_HASH_LEN];
-    compute_chain(hash,
-                  blk_hash,
-                  chain,
-                  chain_len,
-                  id);
-
-    ret = verify_hash(hash);
-    if (ret != 0)
-    {
-        perror("error: verify_hash");
-        return -1;
-    }
+	ret = verify_hash(hash);
+	if (ret != 0)
+	{
+		perror("error: verify_hash");
+		return ret;
+	}
 
 	ret = blk_decrypt(
 		(void *) blk->data, NULL,
@@ -232,14 +306,6 @@ int client_wr_blk(client_t *cl, blk_t *blk, blk_id_t id)
 		(void *) blk->salt,
 		(void *) cl->key);
 
-    char blk_hash[MTREE_HASH_LEN];
-    crypto_generichash((void *) blk_hash,
-                       sizeof(blk_hash),
-                       (const void *) blk,
-                       sizeof(*blk),
-                       NULL,
-                       0);
-
 	ret = send(cl->sock, blk, sizeof*(blk), 0);
 	if (ret != sizeof*(blk))
 	{
@@ -247,137 +313,19 @@ int client_wr_blk(client_t *cl, blk_t *blk, blk_id_t id)
 		return -1;
 	}
 
-    char chain[MTREE_HASH_LEN * CHAIN_LEN];
-    int chain_len = CHAIN_LEN;
+	char hash[MTREE_HASH_LEN];
+	ret = compute_top(cl, blk, id, hash);
+	if (ret != 0)
+	{
+		return ret;
+	}
 
-    ret = recv(cl->sock, chain, chain_len, 0);
-    if (ret != chain_len)
-    {
-        perror("error: recv");
-        return -1;
-    }
-
-    char hash[MTREE_HASH_LEN];
-    compute_chain(hash,
-                  blk_hash,
-                  chain,
-                  chain_len,
-                  id);
-
-    ret = update_hash(hash);
-    if (ret != 0)
-    {
-        perror("error: update_hash");
-        return -1;
-    }
+	ret = update_hash(hash);
+	if (ret != 0)
+	{
+		perror("error: update_hash");
+		return ret;
+	}
 
 	return 0;
-}
-
-static int update_hash(char *hash)
-{
-    int ret;
-    FILE *f;
-
-    f = fopen("hash", "wb");
-
-    if (f == NULL)
-    {
-        perror("error: fopen");
-        return -1;
-    }
-
-    ret = fwrite(hash,
-                MTREE_HASH_LEN,
-                1,
-                f);
-    fclose(f);
-
-    if (ret != 1)
-    {
-        perror("error: fwrite");
-        return -1;
-    }
-
-    return 0;
-}
-
-static int verify_hash(char *hash)
-{
-    int ret;
-    FILE *f;
-    char buf[MTREE_HASH_LEN];
-
-    f = fopen("hash", "rb");
-
-    if (f == NULL)
-    {
-        perror("error: fopen");
-        return -1;
-    }
-
-    ret = fread(buf,
-                sizeof(buf),
-                1,
-                f);
-    fclose(f);
-
-    if (ret != 1)
-    {
-        perror("error: fread");
-        return -1;
-    }
-
-    ret = memcmp(buf, hash, sizeof(buf));
-    if (ret != 0)
-    {
-        // possibly corrupted
-        perror("error: memcmp");
-        return -1;
-    }
-
-    return 0;
-}
-
-static void compute_chain(char *out, char *in, char *chain, size_t len, blk_id_t blk_id)
-{
-    char buf[MTREE_HASH_LEN * 2];
-    blk_id_t node_id;
-    size_t prev_offset, chain_offset;
-
-    node_id = mtree_blk_from_depth(MTREE_DEPTH, blk_id);
-
-    memcpy(out, in, MTREE_HASH_LEN);
-
-    for (int i = 0; i < len; i++)
-    {
-        // VERIFIERA DETTA !
-        if (node_id % 2 == 0)
-        {
-            prev_offset = MTREE_HASH_LEN;
-            chain_offset = 0;
-        }
-        else
-        {
-            prev_offset = 0;
-            chain_offset = MTREE_HASH_LEN;
-        }
-
-        memcpy(buf + prev_offset,
-               out,
-               MTREE_HASH_LEN);
-
-        memcpy(buf + chain_offset,
-               chain + i * MTREE_HASH_LEN,
-               MTREE_HASH_LEN);
-
-        crypto_generichash(out,
-                           MTREE_HASH_LEN,
-                           buf,
-                           MTREE_HASH_LEN * 2,
-                           NULL,
-                           0);
-
-        node_id = mtree_parent(node_id);
-    }
 }
