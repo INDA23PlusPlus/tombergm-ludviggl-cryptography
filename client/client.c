@@ -10,26 +10,23 @@
 #include <sodium.h>
 #include <blk.h>
 #include <cmd.h>
+#include "cache.h"
+#include "client.h"
 #include "mtree.h"
 
-#define KEY_LEN	blk_crypto(_KEYBYTES)
 #define CHAIN_LEN (MTREE_DEPTH - 1)
-
-static int			      c_sock = -1;
-static struct sockaddr_in c_addr;
-static socklen_t          c_addrlen;
-
-static char			      c_key[KEY_LEN];
-static char			      c_salt[BLK_SALT_LEN];
 
 static int update_hash(char *hash);
 static int verify_hash(char *hash);
-static void compute_chain(char *out, char *in, char *chain, size_t len, blk_id_t blk_id);
+static void compute_chain(char *out, char *in, char *chain, size_t len,
+				blk_id_t blk_id);
 
-int client_start(void)
+int client_start(client_t *cl, const char *pw)
 {
 	int			ret		= 0;
 	struct protoent *	tcp		= NULL;
+	struct sockaddr_in	addr;
+	socklen_t		addrlen;
 
 	if (sodium_init() < 0)
 	{
@@ -46,20 +43,20 @@ int client_start(void)
 		goto exit;
 	}
 
-	c_sock = socket(AF_INET, SOCK_STREAM, tcp->p_proto);
-	if (c_sock == -1)
+	cl->sock = socket(AF_INET, SOCK_STREAM, tcp->p_proto);
+	if (cl->sock == -1)
 	{
 		perror("error: socket");
 		ret =  -1;
 		goto exit;
 	}
 
-	c_addr.sin_family = AF_INET;
-	c_addr.sin_port = htons(1311);
-	inet_aton("127.0.0.1", &c_addr.sin_addr);
-	c_addrlen = sizeof(c_addr);
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(1311);
+	inet_aton("127.0.0.1", &addr.sin_addr);
+	addrlen = sizeof(addr);
 
-	ret = connect(c_sock, (struct sockaddr *) &c_addr, c_addrlen);
+	ret = connect(cl->sock, (struct sockaddr *) &addr, addrlen);
 	if (ret != 0)
 	{
 		perror("error: connect");
@@ -67,12 +64,11 @@ int client_start(void)
 		goto exit;
 	}
 
-	char pw[] = "password123";
 	char salt[crypto_pwhash_SALTBYTES] = { 0 };
 
-	ret = crypto_pwhash(	(void *) c_key, sizeof(c_key),
-				(void *) pw   , sizeof(pw   ),
-				(void *) salt ,
+	ret = crypto_pwhash(	(void *) cl->key, sizeof(cl->key),
+				(void *) pw     , strlen(pw   ),
+				(void *) salt   ,
 				crypto_pwhash_OPSLIMIT_INTERACTIVE,
 				crypto_pwhash_MEMLIMIT_INTERACTIVE,
 				crypto_pwhash_ALG_DEFAULT);
@@ -84,53 +80,79 @@ int client_start(void)
 		goto exit;
 	}
 
-	randombytes_buf(c_salt, sizeof(c_salt));
+	randombytes_buf(cl->salt, sizeof(cl->salt));
+
+	cl->sb_cache = cache_new(cl, 4);
+	cl->dir_cache = cache_new(cl, 4);
+	cl->reg_cache = cache_new(cl, 4);
+
+	if (	cl->sb_cache == NULL	||
+		cl->dir_cache == NULL	||
+		cl->reg_cache == NULL	)
+	{
+		errno = ENOMEM;
+		perror("error: cache_new");
+		ret = -1;
+		goto exit;
+	}
 
 	ret = 0;
 
 exit:
 	if (ret != 0)
 	{
-		if (c_sock != -1)
+		if (cl->sock != -1)
 		{
-			close(c_sock);
+			close(cl->sock);
+		}
+		if (cl->sb_cache != NULL)
+		{
+			free(cl->sb_cache);
+		}
+		if (cl->dir_cache != NULL)
+		{
+			free(cl->dir_cache);
+		}
+		if (cl->reg_cache != NULL)
+		{
+			free(cl->reg_cache);
 		}
 	}
 
 	return ret;
 }
 
-int client_stop(void)
+int client_stop(client_t *cl)
 {
-	if (c_sock != -1)
+	if (cl->sock != -1)
 	{
-		close(c_sock);
+		close(cl->sock);
 	}
 
 	return 0;
 }
 
-int client_read_blk(blk_t *blk, blk_id_t id)
+int client_rd_blk(client_t *cl, blk_t *blk, blk_id_t id)
 {
 	int ret;
 
 	cmd_t cmd = CMD_RD_BLK;
 
-	ret = send(c_sock, &cmd, sizeof(cmd), MSG_MORE);
+	ret = send(cl->sock, &cmd, sizeof(cmd), MSG_MORE);
 	if (ret != sizeof(cmd))
 	{
 		perror("error: send");
 		return -1;
 	}
 
-	ret = send(c_sock, &id, sizeof(id), MSG_MORE);
+	ret = send(cl->sock, &id, sizeof(id), MSG_MORE);
 	if (ret != sizeof(id))
 	{
 		perror("error: send");
 		return -1;
 	}
 
-	ret = recv(c_sock, blk, sizeof*(blk), MSG_WAITALL);
+	ret = recv(cl->sock, blk, sizeof*(blk), MSG_WAITALL);
 	if (ret != sizeof*(blk))
 	{
 		perror("error: recv");
@@ -148,7 +170,7 @@ int client_read_blk(blk_t *blk, blk_id_t id)
     char chain[MTREE_HASH_LEN * CHAIN_LEN];
     int chain_len = CHAIN_LEN;
 
-    ret = recv(c_sock, chain, chain_len, 0);
+    ret = recv(cl->sock, chain, chain_len, 0);
     if (ret != chain_len)
     {
         perror("error: recv");
@@ -175,32 +197,32 @@ int client_read_blk(blk_t *blk, blk_id_t id)
 		(void *) blk->data, sizeof(blk->data) + sizeof(blk->auth),
 		NULL, 0,
 		(void *) blk->salt,
-		(void *) c_key);
+		(void *) cl->key);
 
 	return 0;
 }
 
-int client_write_blk(blk_t *blk, blk_id_t id)
+int client_wr_blk(client_t *cl, blk_t *blk, blk_id_t id)
 {
 	int ret;
 
 	cmd_t cmd = CMD_WR_BLK;
 
-	ret = send(c_sock, &cmd, sizeof(cmd), MSG_MORE);
+	ret = send(cl->sock, &cmd, sizeof(cmd), MSG_MORE);
 	if (ret != sizeof(cmd))
 	{
 		perror("error: send");
 		return -1;
 	}
 
-	ret = send(c_sock, &id, sizeof(id), MSG_MORE);
+	ret = send(cl->sock, &id, sizeof(id), MSG_MORE);
 	if (ret != sizeof(id))
 	{
 		perror("error: send");
 		return -1;
 	}
 
-	memcpy(blk->salt, c_salt, sizeof(c_salt));
+	memcpy(blk->salt, cl->salt, sizeof(cl->salt));
 
 	blk_encrypt(
 		(void *) blk->data, NULL,
@@ -208,7 +230,7 @@ int client_write_blk(blk_t *blk, blk_id_t id)
 		NULL, 0,
 		NULL,
 		(void *) blk->salt,
-		(void *) c_key);
+		(void *) cl->key);
 
     char blk_hash[MTREE_HASH_LEN];
     crypto_generichash((void *) blk_hash,
@@ -218,7 +240,7 @@ int client_write_blk(blk_t *blk, blk_id_t id)
                        NULL,
                        0);
 
-	ret = send(c_sock, blk, sizeof*(blk), 0);
+	ret = send(cl->sock, blk, sizeof*(blk), 0);
 	if (ret != sizeof*(blk))
 	{
 		perror("error: send");
@@ -228,7 +250,7 @@ int client_write_blk(blk_t *blk, blk_id_t id)
     char chain[MTREE_HASH_LEN * CHAIN_LEN];
     int chain_len = CHAIN_LEN;
 
-    ret = recv(c_sock, chain, chain_len, 0);
+    ret = recv(cl->sock, chain, chain_len, 0);
     if (ret != chain_len)
     {
         perror("error: recv");

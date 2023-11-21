@@ -6,11 +6,9 @@
 #include <fuse.h>
 #include <sodium.h>
 #include <blk.h>
+#include "client.h"
 
-int client_start(void);
-int client_stop(void);
-int client_read_blk(blk_t *blk, blk_id_t id);
-int client_write_blk(blk_t *blk, blk_id_t id);
+static client_t cl;
 
 static const char *hello_path = "/hello";
 
@@ -79,7 +77,7 @@ static int fs_truncate(const char *path, off_t length)
 
 		if (length != 0)
 		{
-			if (client_read_blk(&blk, 0) != 0)
+			if (client_rd_blk(&cl, &blk, 0) != 0)
 			{
 				return -EIO;
 			}
@@ -87,7 +85,7 @@ static int fs_truncate(const char *path, off_t length)
 
 		memset(&blk.data[length], 0, size);
 
-		if (client_write_blk(&blk, 0) != 0)
+		if (client_wr_blk(&cl, &blk, 0) != 0)
 		{
 			return -EIO;
 		}
@@ -112,7 +110,7 @@ static int fs_read(const char *path, char *buf, size_t size,
 		}
 
 		blk_t blk;
-		if (client_read_blk(&blk, 0) != 0)
+		if (client_rd_blk(&cl, &blk, 0) != 0)
 		{
 			return -EIO;
 		}
@@ -149,7 +147,7 @@ static int fs_write(const char *path, const char *buf, size_t size,
 		}
 		else
 		{
-			if (client_read_blk(&blk, 0) != 0)
+			if (client_rd_blk(&cl, &blk, 0) != 0)
 			{
 				return -EIO;
 			}
@@ -157,7 +155,7 @@ static int fs_write(const char *path, const char *buf, size_t size,
 
 		memcpy(&blk.data[offset], buf, size);
 
-		if (client_write_blk(&blk, 0) != 0)
+		if (client_wr_blk(&cl, &blk, 0) != 0)
 		{
 			return -EIO;
 		}
@@ -184,7 +182,7 @@ int main(int argc, char *argv[])
 {
 	int ret = EXIT_SUCCESS;
 
-	ret = client_start();
+	ret = client_start(&cl, "password123");
 	if (ret != 0)
 	{
 		ret = EXIT_FAILURE;
@@ -194,7 +192,7 @@ int main(int argc, char *argv[])
 	ret = fuse_main(argc, argv, &fs_ops, NULL);
 
 exit:
-	client_stop();
+	client_stop(&cl);
 
 	return ret;
 }
