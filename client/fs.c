@@ -14,27 +14,6 @@
         __ptr;\
     })
 
-int fs_init(client_t *cl, unsigned map_count)
-{
-    fs_super_t *super = verify_ptr(cache_get_blk(cl->sb_cache, 0));
-
-    super->total_count = map_count * BLOCK_SIZE * 8;
-    super->free_count  = super->total_count;
-    super->map_count   = map_count;
-
-    unsigned root_id = block_alloc(cl);
-    fs_dir_t *root   = verify_ptr(cache_get_blk(cl->dir_cache, root_id));
-
-    memset(root, 0, BLOCK_SIZE);
-
-    root->free_count = DIR_MAX_ENTRIES;
-    entry_count      = 0;
-
-    super->root = root;
-
-    return 0;
-}
-
 static unsigned block_alloc(client_t *cl)
 {
     fs_super_t *super = verify_ptr(cache_get_blk(cl->sb_cache, 0));
@@ -69,16 +48,35 @@ static unsigned block_alloc(client_t *cl)
 
 static int block_free(client_t *cl, unsigned id)
 {
-    fs_super_t *super = verify_ptr(cache_get_blk(&cl->sb_cache, 0));
-
     unsigned byte_id     = id / 8;
     unsigned byte_offset = id % 8;
     unsigned map_id      = 1 + byte_id / BLOCK_SIZE;
     unsigned map_offset  = byte_id % BLOCK_SIZE;
 
-    unsigned char *map = verify_ptr(cache_get_blk(&cl->sb_cache, map_id));
+    unsigned char *map = verify_ptr(cache_get_blk(cl->sb_cache, map_id));
 
     map[map_offset] &= ~(1 << byte_offset);
+
+    return 0;
+}
+
+int fs_init(client_t *cl, unsigned map_count)
+{
+    fs_super_t *super = verify_ptr(cache_get_blk(cl->sb_cache, 0));
+
+    super->total_count = map_count * BLOCK_SIZE * 8;
+    super->free_count  = super->total_count;
+    super->map_count   = map_count;
+
+    unsigned root_id = block_alloc(cl);
+    fs_dir_t *root   = verify_ptr(cache_get_blk(cl->dir_cache, root_id));
+
+    memset(root, 0, BLOCK_SIZE);
+
+    root->free_count = DIR_MAX_ENTRIES;
+    root->entry_count      = 0;
+
+    super->root = root_id;
 
     return 0;
 }
