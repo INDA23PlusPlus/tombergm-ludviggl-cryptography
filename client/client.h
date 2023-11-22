@@ -9,7 +9,9 @@ typedef struct cache cache_t;
 
 typedef struct client
 {
-	int			sock;
+	int			sock_fd;
+	int			root_fd;
+	int			hash_fd;
 	char			key[KEY_LEN];
 	char			salt[BLK_SALT_LEN];
 	cache_t *		sb_cache;
@@ -17,7 +19,7 @@ typedef struct client
 	cache_t *		reg_cache;
 } client_t;
 
-int	client_start	(client_t *cl, const char *pw);
+int	client_start	(client_t *cl, const char *root_path, const char *pw);
 int	client_stop	(client_t *cl);
 int	client_rd_blk	(client_t *cl, blk_t *blk, blk_id_t id);
 int	client_wr_blk	(client_t *cl, blk_t *blk, blk_id_t id);

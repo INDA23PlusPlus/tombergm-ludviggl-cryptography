@@ -250,7 +250,7 @@ int main(int argc, char *argv[])
 {
 	int ret = EXIT_SUCCESS;
 
-	ret = client_start(&cl, "password123");
+	ret = client_start(&cl, "./cl_root/", "password123");
 	if (ret != 0)
 	{
 		ret = EXIT_FAILURE;
@@ -259,8 +259,9 @@ int main(int argc, char *argv[])
 
 	ret = fuse_main(argc, argv, &fs_ops, NULL);
 
-exit:
 	client_stop(&cl);
+
+exit:
 
 	return ret;
 }
