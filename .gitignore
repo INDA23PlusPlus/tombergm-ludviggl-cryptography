@@ -6,4 +6,7 @@
 /data/
 /mnt/
 
+/cl_root/
+/sv_root/
+
 /fstest/

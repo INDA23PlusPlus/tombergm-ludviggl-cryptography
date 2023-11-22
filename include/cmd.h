@@ -3,6 +3,8 @@
 
 enum
 {
+	CMD_SYNC,
+	CMD_NDAT,
 	CMD_WR_BLK,
 	CMD_RD_BLK,
 };

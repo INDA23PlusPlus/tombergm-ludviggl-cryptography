@@ -79,9 +79,10 @@ int main(int argc, char *argv[])
 			goto exit;
 		}
 
-		ret = server_start(&sv, c_sock);
+		ret = server_start(&sv, c_sock, "./sv_root/");
 		if (ret != 0)
 		{
+			close(c_sock);
 			ret = EXIT_FAILURE;
 			goto exit;
 		}
