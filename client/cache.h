@@ -27,7 +27,9 @@ void		cache_del	(cache_t *cache);
 void *		cache_get_blk	(cache_t *cache, blk_id_t id);
 void *		cache_claim_blk	(cache_t *cache, blk_id_t id);
 void		cache_dirty_blk	(cache_t *cache, blk_id_t id);
+void		cache_dirty_ptr	(cache_t *cache, void *ptr);
 int		cache_flush_blk	(cache_t *cache, blk_id_t id);
+int		cache_flush_ptr	(cache_t *cache, void *ptr);
 int		cache_flush	(cache_t *cache);
 
 #endif
