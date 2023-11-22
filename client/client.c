@@ -14,83 +14,77 @@
 #include "client.h"
 #include "mtree.h"
 
-static int update_hash(char *hash)
+static int update_top(char *hash)
 {
-    int ret;
-    FILE *f;
+	int	ret;
+	FILE *	f;
 
-    f = fopen("hash", "wb");
+	f = fopen("hash", "wb");
 
-    if (f == NULL)
-    {
-        perror("error: fopen");
-        return -1;
-    }
+	if (f == NULL)
+	{
+		perror("error: fopen");
+		return -1;
+	}
 
-    ret = fwrite(hash,
-                MTREE_HASH_LEN,
-                1,
-                f);
-    fclose(f);
+	ret = fwrite(hash, MTREE_HASH_LEN, 1, f);
+	fclose(f);
 
-    if (ret != 1)
-    {
-        perror("error: fwrite");
-        return -1;
-    }
+	if (ret != 1)
+	{
+		perror("error: fwrite");
+		return -1;
+	}
 
-    return 0;
+	return 0;
 }
 
-static int verify_hash(char *hash)
+static int verify_top(char *hash)
 {
-    int ret;
-    FILE *f;
-    char buf[MTREE_HASH_LEN];
+	int	ret;
+	FILE *	f;
+	char	buf[MTREE_HASH_LEN];
 
-    f = fopen("hash", "rb");
+	f = fopen("hash", "rb");
 
-    if (f == NULL)
-    {
-        if (errno == ENOENT)
+	if (f == NULL)
 	{
-            return update_hash(hash);
+		if (errno == ENOENT)
+		{
+		    return update_top(hash);
+		}
+		else
+		{
+		    perror("error: fopen");
+		    return -1;
+		}
 	}
-        else
-        {
-            perror("error: fopen");
-            return -1;
-        }
-    }
 
-    ret = fread(buf,
-                sizeof(buf),
-                1,
-                f);
-    fclose(f);
+	ret = fread(buf, sizeof(buf), 1, f);
+	fclose(f);
 
-    if (ret != 1)
-    {
-        perror("error: fread");
-        return -1;
-    }
+	if (ret != 1)
+	{
+		perror("error: fread");
+		return -1;
+	}
 
-    ret = memcmp(buf, hash, sizeof(buf));
-    if (ret != 0)
-    {
-        // possibly corrupted
-        perror("error: memcmp");
-        return -1;
-    }
+	ret = memcmp(buf, hash, sizeof(buf));
+	if (ret != 0)
+	{
+		errno = EIO;
+		perror("error: memcmp");
+		return -1;
+	}
 
-    return 0;
+	return 0;
 }
 
 static int compute_top(client_t *cl, blk_t *blk, blk_id_t blk_id,
 			char (*hash)[MTREE_HASH_LEN])
 {
 	int		ret	= 0;
-	blk_id_t	node_id	= mtree_blk_from_depth(MTREE_DEPTH, blk_id);
+	node_id_t	node_id	= mtree_blk_from_depth(MTREE_DEPTH, blk_id);
 
 	crypto_generichash(	(void *)       hash, sizeof*(hash),
 				(const void *) blk , sizeof*(blk) ,
@@ -127,6 +121,11 @@ int client_start(client_t *cl, const char *pw)
 	struct protoent *	tcp		= NULL;
 	struct sockaddr_in	addr;
 	socklen_t		addrlen;
+
+	cl->sock	= -1;
+	cl->sb_cache	= NULL;
+	cl->dir_cache	= NULL;
+	cl->reg_cache	= NULL;
 
 	if (sodium_init() < 0)
 	{
@@ -207,15 +206,15 @@ exit:
 		}
 		if (cl->sb_cache != NULL)
 		{
-			free(cl->sb_cache);
+			cache_del(cl->sb_cache);
 		}
 		if (cl->dir_cache != NULL)
 		{
-			free(cl->dir_cache);
+			cache_del(cl->dir_cache);
 		}
 		if (cl->reg_cache != NULL)
 		{
-			free(cl->reg_cache);
+			cache_del(cl->reg_cache);
 		}
 	}
 
@@ -224,6 +223,21 @@ exit:
 
 int client_stop(client_t *cl)
 {
+	if (cl->sb_cache != NULL)
+	{
+		cache_flush(cl->sb_cache);
+		cache_del(cl->sb_cache);
+	}
+	if (cl->dir_cache != NULL)
+	{
+		cache_flush(cl->dir_cache);
+		cache_del(cl->dir_cache);
+	}
+	if (cl->reg_cache != NULL)
+	{
+		cache_flush(cl->reg_cache);
+		cache_del(cl->reg_cache);
+	}
 	if (cl->sock != -1)
 	{
 		close(cl->sock);
@@ -266,10 +280,9 @@ int client_rd_blk(client_t *cl, blk_t *blk, blk_id_t id)
 		return ret;
 	}
 
-	ret = verify_hash(hash);
+	ret = verify_top(hash);
 	if (ret != 0)
 	{
-		perror("error: verify_hash");
 		return ret;
 	}
 
@@ -328,10 +341,9 @@ int client_wr_blk(client_t *cl, blk_t *blk, blk_id_t id)
 		return ret;
 	}
 
-	ret = update_hash(hash);
+	ret = update_top(hash);
 	if (ret != 0)
 	{
-		perror("error: update_hash");
 		return ret;
 	}
 

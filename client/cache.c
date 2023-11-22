@@ -22,7 +22,7 @@ static inline void cblk_set_valid(cblk_t *cblk, int valid)
 	}
 	else
 	{
-		cblk->flags &= CACHE_VALID;
+		cblk->flags &= ~CACHE_VALID;
 	}
 }
 
@@ -34,7 +34,7 @@ static inline void cblk_set_dirty(cblk_t *cblk, int dirty)
 	}
 	else
 	{
-		cblk->flags &= CACHE_DIRTY;
+		cblk->flags &= ~CACHE_DIRTY;
 	}
 }
 
@@ -125,6 +125,11 @@ cache_t *cache_new(client_t *cl, int n_blk)
 	return cache;
 }
 
+void cache_del(cache_t *cache)
+{
+	free(cache);
+}
+
 void *cache_get_blk(cache_t *cache, blk_id_t id)
 {
 	cblk_t *cblk = cache_find_blk(cache, id);
@@ -142,6 +147,25 @@ void *cache_get_blk(cache_t *cache, blk_id_t id)
 	}
 
 	return NULL;
+}
+
+void *cache_claim_blk(cache_t *cache, blk_id_t id)
+{
+	cblk_t *cblk = cache_find_blk(cache, id);
+
+	if (cblk != NULL)
+	{
+		return cblk->data;
+	}
+
+	cblk = &cache->blk[id % cache->n_blk];
+
+	cblk_flush(cblk, cache->cl);
+
+	cblk->id = id;
+	cblk->flags = CACHE_VALID | CACHE_DIRTY;
+
+	return cblk->data;
 }
 
 void cache_dirty_blk(cache_t *cache, blk_id_t id)

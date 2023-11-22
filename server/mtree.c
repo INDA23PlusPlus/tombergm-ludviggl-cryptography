@@ -3,7 +3,6 @@
 #include <sodium.h>
 #include <blk.h>
 #include <mtree.h>
-#include <sys/socket.h>
 
 static const mtree_node_t *null_blk(void)
 {
@@ -28,9 +27,9 @@ static const mtree_node_t *null_blk(void)
 
 mtree_t *mtree_new(unsigned depth)
 {
+	node_id_t	nodes = ((node_id_t) 1 << (depth + 1)) - 1;
 	size_t		size;
 	mtree_t *	mtree;
-	blk_id_t	nodes = (blk_id_t) 1 << depth;
 
 	size = sizeof*(mtree) + sizeof*(mtree->nodes) * nodes;
 	mtree = malloc(size);
@@ -43,7 +42,12 @@ mtree_t *mtree_new(unsigned depth)
 	return mtree;
 }
 
-void mtree_update_node(mtree_t *mtree, blk_id_t node_id)
+void mtree_del(mtree_t *mtree)
+{
+	free(mtree);
+}
+
+void mtree_update_node(mtree_t *mtree, node_id_t node_id)
 {
 	mtree_node_t (*node)[1]	= (void *) &mtree->nodes[node_id];
 	mtree_node_t (*pair)[2]	= (void *) &mtree->nodes[(node_id << 1) + 1];
@@ -60,7 +64,7 @@ void mtree_update_node(mtree_t *mtree, blk_id_t node_id)
 
 void mtree_set_blk(mtree_t *mtree, blk_id_t blk_id, const blk_t *blk)
 {
-	blk_id_t	node_id		= mtree_blk(mtree, blk_id);
+	node_id_t	node_id		= mtree_blk(mtree, blk_id);
 	mtree_node_t (*	node)[1]	= (void *) &mtree->nodes[node_id];
 
 	if (blk == NULL)

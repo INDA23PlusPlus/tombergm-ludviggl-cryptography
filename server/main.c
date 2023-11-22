@@ -6,8 +6,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <sodium.h>
+#include "server.h"
 
-int server_run(int sock);
+static server_t sv;
 
 int main(int argc, char *argv[])
 {
@@ -16,9 +17,6 @@ int main(int argc, char *argv[])
 	int			s_sock		= -1;
 	struct sockaddr_in	s_addr;
 	socklen_t		s_addrlen;
-	int			c_sock		= -1;
-	struct sockaddr_in	c_addr;
-	socklen_t		c_addrlen;
 
 	if (sodium_init() < 0)
 	{
@@ -66,6 +64,10 @@ int main(int argc, char *argv[])
 
 	for (;;)
 	{
+		int			c_sock;
+		struct sockaddr_in	c_addr;
+		socklen_t		c_addrlen;
+
 		c_addrlen = sizeof(c_addr);
 		c_sock = accept(s_sock, (struct sockaddr *) &c_addr,
 				&c_addrlen);
@@ -77,7 +79,22 @@ int main(int argc, char *argv[])
 			goto exit;
 		}
 
-		ret = server_run(c_sock);
+		ret = server_start(&sv, c_sock);
+		if (ret != 0)
+		{
+			ret = EXIT_FAILURE;
+			goto exit;
+		}
+
+		ret = server_run(&sv);
+		if (ret != 0)
+		{
+			server_stop(&sv);
+			ret = EXIT_FAILURE;
+			goto exit;
+		}
+
+		ret = server_stop(&sv);
 		if (ret != 0)
 		{
 			ret = EXIT_FAILURE;
@@ -91,11 +108,6 @@ exit:
 	if (s_sock != -1)
 	{
 		close(s_sock);
-	}
-
-	if (c_sock != -1)
-	{
-		close(c_sock);
 	}
 
 	return ret;

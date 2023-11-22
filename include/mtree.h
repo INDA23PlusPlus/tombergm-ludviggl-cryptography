@@ -1,11 +1,14 @@
 #ifndef MTREE_H
 #define MTREE_H
 
+#include <stdint.h>
 #include <sodium.h>
 #include <blk.h>
 
 #define MTREE_HASH_LEN	crypto_generichash_BYTES
 #define MTREE_DEPTH     8
+
+typedef uint64_t	node_id_t;
 
 typedef struct
 {
@@ -19,26 +22,28 @@ typedef struct
 } mtree_t;
 
 mtree_t *	mtree_new		(unsigned depth);
-void		mtree_update_node	(mtree_t *mtree, blk_id_t id);
-void		mtree_set_blk		(mtree_t *mtree, blk_id_t blk_id,
+void		mtree_del		(mtree_t *mtree);
+void		mtree_update_node	(mtree_t *mtree, node_id_t node_id);
+void		mtree_set_blk		(mtree_t *mtree, node_id_t blk_id,
 					const blk_t *blk);
 
-static inline blk_id_t mtree_parent(blk_id_t node)
+static inline node_id_t mtree_parent(node_id_t node_id)
 {
-	return (node - 1) >> 1;
+	return (node_id - 1) >> 1;
 }
 
-static inline blk_id_t mtree_blk(const mtree_t *mtree, blk_id_t blk_id)
+static inline
+node_id_t mtree_blk_from_depth(unsigned depth, node_id_t blk_id)
 {
-	return ((blk_id_t) 1 << mtree->depth) - 1 + blk_id;
+	return ((node_id_t) 1 << depth) - 1 + blk_id;
 }
 
-static inline blk_id_t mtree_blk_from_depth(unsigned depth, blk_id_t blk_id)
+static inline node_id_t mtree_blk(const mtree_t *mtree, blk_id_t blk_id)
 {
-	return ((blk_id_t) 1 << depth) - 1 + blk_id;
+	return mtree_blk_from_depth(mtree->depth, blk_id);
 }
 
-static inline blk_id_t mtree_sibling(mtree_t *mtree, blk_id_t node_id)
+static inline node_id_t mtree_sibling(mtree_t *mtree, node_id_t node_id)
 {
     return ((node_id - 1) ^ 1) + 1;
 }
