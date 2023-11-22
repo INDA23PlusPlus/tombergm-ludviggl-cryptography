@@ -1,52 +1,48 @@
 #include <errno.h>
-#include <stdio.h>
 #include <inttypes.h>
+#include <stdio.h>
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <blk.h>
 #include <cmd.h>
 #include <mtree.h>
+#include "server.h"
 
-static mtree_t *	mtree;
-
-static int send_mtree(int sock, blk_id_t blk_id)
+static int send_mtree(server_t *sv, blk_id_t blk_id)
 {
 	int		ret	= 0;
-	blk_id_t	node_id	= mtree_blk(mtree, blk_id);
+	node_id_t	node_id	= mtree_blk(sv->mtree, blk_id);
 
 	while (node_id != 0)
 	{
-		node_id = mtree_sibling(mtree, node_id);
-		mtree_node_t *node = &mtree->nodes[node_id];
+		mtree_node_t *	node;
+		int		flags;
 
-		ret = send(sock, node, sizeof*(node), MSG_MORE);
+		node_id = mtree_sibling(sv->mtree, node_id);
+		node = &sv->mtree->nodes[node_id];
+		node_id = mtree_parent(node_id);
+
+		flags = (node_id == 0 ? 0 : MSG_MORE);
+		ret = send(sv->sock, node, sizeof*(node), flags);
+
 		if (ret != sizeof*(node))
 		{
 			perror("error: send");
 			return -1;
 		}
-
-		node_id = mtree_parent(node_id);
 	}
 
-	ret = send(sock, NULL, 0, 0);
-	if (ret != 0)
-	{
-		perror("error: send");
-		return -1;
-	}
-
-	return ret;
+	return 0;
 }
 
-static int server_rd_blk(int sock)
+static int server_rd_blk(server_t *sv)
 {
 	int		ret;
 	blk_id_t	id;
 	blk_t		blk;
 
-	ret = recv(sock, &id, sizeof(id), MSG_WAITALL);
+	ret = recv(sv->sock, &id, sizeof(id), MSG_WAITALL);
 	if (ret != sizeof(id))
 	{
 		perror("error: recv");
@@ -72,13 +68,13 @@ static int server_rd_blk(int sock)
 
 	close(fd);
 
-	if (send(sock, &blk, sizeof(blk), 0) != sizeof(blk))
+	if (send(sv->sock, &blk, sizeof(blk), 0) != sizeof(blk))
 	{
 		perror("error: send");
 		return -1;
 	}
 
-	ret = send_mtree(sock, id);
+	ret = send_mtree(sv, id);
 	if (ret != 0)
 	{
 		return ret;
@@ -87,20 +83,20 @@ static int server_rd_blk(int sock)
 	return 0;
 }
 
-static int server_wr_blk(int sock)
+static int server_wr_blk(server_t *sv)
 {
 	int		ret;
 	blk_id_t	id;
 	blk_t		blk;
 
-	ret = recv(sock, &id, sizeof(id), MSG_WAITALL);
+	ret = recv(sv->sock, &id, sizeof(id), MSG_WAITALL);
 	if (ret != sizeof(id))
 	{
 		perror("error: recv");
 		return -1;
 	}
 
-	ret = recv(sock, &blk, sizeof(blk), MSG_WAITALL);
+	ret = recv(sv->sock, &blk, sizeof(blk), MSG_WAITALL);
 	if (ret != sizeof(blk))
 	{
 		perror("error: recv");
@@ -126,9 +122,9 @@ static int server_wr_blk(int sock)
 
 	close(fd);
 
-	mtree_set_blk(mtree, id, &blk);
+	mtree_set_blk(sv->mtree, id, &blk);
 
-	ret = send_mtree(sock, id);
+	ret = send_mtree(sv, id);
 	if (ret != 0)
 	{
 		return ret;
@@ -137,23 +133,51 @@ static int server_wr_blk(int sock)
 	return 0;
 }
 
-int server_run(int sock)
+int server_start(server_t *sv, int sock)
 {
-	int	ret;
-	cmd_t	cmd;
+	sv->sock	= sock;
+	sv->mtree	= mtree_new(MTREE_DEPTH);
 
-	mtree = mtree_new(MTREE_DEPTH);
-
-	if (mtree == NULL)
+	if (sv->mtree == NULL)
 	{
 		errno = ENOMEM;
 		perror("error: mtree_new");
 		return -1;
 	}
 
+	return 0;
+}
+
+int server_stop(server_t *sv)
+{
+	if (sv->mtree != NULL)
+	{
+		mtree_del(sv->mtree);
+	}
+	if (sv->sock != -1)
+	{
+		close(sv->sock);
+	}
+
+	return 0;
+}
+
+int server_run(server_t *sv)
+{
+	int	ret;
+	cmd_t	cmd;
+
 	for (;;)
 	{
-		ret = recv(sock, &cmd, sizeof(cmd), MSG_WAITALL);
+		errno = 0;
+
+		ret = recv(sv->sock, &cmd, sizeof(cmd), MSG_WAITALL);
+
+		if (ret == 0 && errno == 0)
+		{
+			return 0;
+		}
+
 		if (ret != sizeof(cmd))
 		{
 			perror("error: recv");
@@ -162,8 +186,8 @@ int server_run(int sock)
 
 		switch (cmd)
 		{
-			case CMD_RD_BLK	: ret = server_rd_blk(sock);	break;
-			case CMD_WR_BLK	: ret = server_wr_blk(sock);	break;
+			case CMD_RD_BLK	: ret = server_rd_blk(sv);	break;
+			case CMD_WR_BLK	: ret = server_wr_blk(sv);	break;
 		}
 
 		if (ret != 0)
