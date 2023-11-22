@@ -1,7 +1,7 @@
 CFLAGS		= -Og -g -Wall
 CPPFLAGS	= -I../include -D_FILE_OFFSET_BITS=64 -DFUSE_USE_VERSION=26
 LDLIBS		= -lfuse -lsodium
-SRC		= cache.c client.c main.c
+SRC		= cache.c client.c fs.c main.c
 PROG		= client
 
 all: $(PROG)
