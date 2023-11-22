@@ -14,6 +14,7 @@
 enum fs_block_type { FS_FILE, FS_DIR, };
 
 enum fs_error {
+    FSERR_OK = 0,
     FSERR_NOT_FOUND,
     FSERR_NOT_DIR,
     FSERR_FULL_DIR,
@@ -40,7 +41,6 @@ typedef struct {
 
 typedef struct {
     unsigned       parent;
-    unsigned       free_count;
     unsigned       entry_id;
     unsigned       entry_count;
     fs_dir_entry_t entries[];
@@ -55,10 +55,11 @@ typedef struct {
 
 int fs_init(client_t *cl, unsigned max_blocks);
 int fs_find_block(client_t *cl, unsigned root, const char *path, unsigned *id, unsigned *type);
-int fs_create_dir(client_t *cl, unsigned dir, const char *name);
-int fs_create_file(client_t *cl, unsigned dir, const char * name);
+int fs_create_dir(client_t *cl, unsigned dir, const char *name, unsigned *id);
+int fs_create_file(client_t *cl, unsigned dir, const char *name, unsigned *id);
 int fs_delete_block(client_t *cl, unsigned dir);
 int fs_write_file(client_t *cl, unsigned file, const char *buf, size_t size, size_t offset);
 int fs_read_file(client_t *cl, unsigned file, char *buf, size_t size, size_t offset);
+unsigned fs_get_root(client_t *cl);
 
 #endif

@@ -22,7 +22,7 @@ static unsigned block_alloc(client_t *cl)
     unsigned map_id    = 1;
     unsigned char *map = verify_ptr(cache_get_blk(cl->sb_cache, map_id));
 
-    for (unsigned byte_id = map_count; byte_id < BLOCK_SIZE * map_count; byte_id++)
+    for (unsigned byte_id = map_count / 8 + 1; byte_id < BLOCK_SIZE * map_count; byte_id++)
     {
         map_id = byte_id / BLOCK_SIZE;
         if (byte_id % BLOCK_SIZE == 0)
@@ -73,7 +73,6 @@ int fs_init(client_t *cl, unsigned map_count)
 
     memset(root, 0, BLOCK_SIZE);
 
-    root->free_count = DIR_MAX_ENTRIES;
     root->entry_count      = 0;
 
     super->root = root_id;
@@ -116,16 +115,24 @@ int fs_find_block(client_t *cl, unsigned root, const char *path, unsigned *id, u
         unsigned name_len = path - begin;
         int matched = 0;
 
+        printf("GOTO: %.*s\n", name_len, begin);
+        printf("entry count: %d\n", dir->entry_count);
+
         for (unsigned i = 0; i < dir->entry_count; i++)
         {
             fs_dir_entry_t *entry = &dir->entries[i];
 
+            printf("TRY ENTRY %d\n", i);
+
             if (!entry->used) continue;
+
+            printf("MATCH: %s\n", entry->name);
 
             unsigned entry_name_len = strlen(entry->name);
 
             if (entry_name_len == name_len && memcmp(entry->name, begin, name_len) == 0)
             {
+                printf("    It exists!\n");
                 *id = entry->id;
                 *type = entry->type;
                 if (*type == FS_FILE)
@@ -144,7 +151,7 @@ int fs_find_block(client_t *cl, unsigned root, const char *path, unsigned *id, u
     return 0;
 }
 
-int fs_create_dir(client_t *cl, unsigned dir, const char *name)
+int fs_create_dir(client_t *cl, unsigned dir, const char *name, unsigned *id)
 {
     fs_super_t *super_ptr = verify_ptr(cache_get_blk(cl->sb_cache, 0));
 
@@ -161,34 +168,37 @@ int fs_create_dir(client_t *cl, unsigned dir, const char *name)
         fs_dir_entry_t *entry = &dir_ptr->entries[i];
         if (!entry->used)
         {
-            unsigned id = block_alloc(cl);
-            if (id == 0) return -FSERR_OOM;
+            unsigned did = block_alloc(cl);
+            if (did == 0) return -FSERR_OOM;
 
-            fs_dir_t *this_dir = verify_ptr(cache_get_blk(cl->dir_cache, id));
+            fs_dir_t *this_dir = verify_ptr(cache_get_blk(cl->dir_cache, did));
 
             memset(this_dir, 0, sizeof*(this_dir));
-            this_dir->parent     = dir;
-            this_dir->entry_id   = i;
-            this_dir->free_count = DIR_MAX_ENTRIES - 2;
+            this_dir->parent      = dir;
+            this_dir->entry_id    = i;
+            this_dir->entry_count = 2;
 
             // add . and .. entries
             this_dir->entries[0].used = 1;
             this_dir->entries[0].type = FS_DIR;
             memcpy(this_dir->entries[0].name, ".", 2);
-            this_dir->entries[0].id = id;
+            this_dir->entries[0].id = did;
 
             this_dir->entries[1].used = 1;
             this_dir->entries[1].type = FS_DIR;
             memcpy(this_dir->entries[1].name, "..", 3);
             this_dir->entries[1].id = dir;
 
-            entry->id   = id;
+            entry->id   = did;
             entry->type = FS_DIR;
             entry->used = 1;
 
             memcpy(entry->name, name, name_len);
 
-            dir_ptr->free_count--;
+            dir_ptr->entry_count++;
+
+            *id = did;
+
             return 0;
         }
     }
@@ -196,7 +206,7 @@ int fs_create_dir(client_t *cl, unsigned dir, const char *name)
     return 0;
 }
 
-int fs_create_file(client_t *cl, unsigned dir, const char *name)
+int fs_create_file(client_t *cl, unsigned dir, const char *name, unsigned *id)
 {
     fs_super_t *super_ptr = verify_ptr(cache_get_blk(cl->sb_cache, 0));
 
@@ -213,20 +223,22 @@ int fs_create_file(client_t *cl, unsigned dir, const char *name)
         fs_dir_entry_t *entry = &dir_ptr->entries[i];
         if (!entry->used)
         {
-            unsigned id = block_alloc(cl);
-            if (id == 0) return -FSERR_OOM;
+            unsigned fid = block_alloc(cl);
+            if (fid == 0) return -FSERR_OOM;
 
-            fs_file_t *file = verify_ptr(cache_get_blk(cl->dir_cache, id));
+            fs_file_t *file = verify_ptr(cache_get_blk(cl->dir_cache, fid));
 
             file->parent   = dir;
             file->entry_id = i;
 
-            entry->id = id;
+            entry->id = fid;
             entry->type = FS_FILE;
             entry->used = 1;
             memcpy(entry->name, name, name_len);
 
-            dir_ptr->free_count--;
+            dir_ptr->entry_count++;
+
+            *id = fid;
 
             return 0;
         }
@@ -247,7 +259,7 @@ int fs_delete_file(client_t *cl, unsigned id)
 
     fs_dir_t *parent = verify_ptr(cache_get_blk(cl->dir_cache, file_ptr->parent));
     parent->entries[file_ptr->entry_id].used = 0;
-    parent->free_count++;
+    parent->entry_count--;
     if (block_free(cl, id) != 0) return FSERR_IO;
 
     return 0;
@@ -274,8 +286,11 @@ int fs_delete_dir(client_t *cl, unsigned id)
             }
         }
     }
-
     if (block_free(cl, id) != 0) return FSERR_IO;
+
+    fs_dir_t *parent = verify_ptr(cache_get_blk(cl->dir_cache, dir->parent));
+    parent->entries[dir->entry_id].used = 0;
+    parent->entry_count--;
 
     return 0;
 }
@@ -343,4 +358,11 @@ int fs_read_file(client_t *cl, unsigned file, char *buf, size_t size, size_t off
     }
 
     return 0;
+}
+
+unsigned fs_get_root(client_t *cl)
+{
+    fs_super_t *super = cache_get_blk(cl->sb_cache, 0);
+    if (super == NULL) return 0;
+    return super->root;
 }
