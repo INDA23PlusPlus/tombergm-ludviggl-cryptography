@@ -81,17 +81,20 @@ int fs_init(client_t *cl, unsigned map_count)
     return 0;
 }
 
-static int parse_name(const char **path)
+static int parse_name(const char **begin, const char **path)
 {
+    while (**path == '/') (*path)++;
     if (**path == '\0') return 0;
 
-    while (**path == '/') (*path)++;
+    *begin = *path;
+
     while (**path != '/')
     {
         if (**path == '\0')
         {
-            return 0;
+            return 1;
         }
+        (*path)++;
     }
 
     return 1;
@@ -101,14 +104,16 @@ int fs_find_block(client_t *cl, unsigned root, const char *path, unsigned *id, u
 {
     fs_super_t *super = verify_ptr(cache_get_blk(cl->sb_cache, 0));
     *id = super->root;
+    *type = FS_DIR;
     fs_dir_t *dir = verify_ptr(cache_get_blk(cl->dir_cache, *id));
+
+    const char *begin = path;
 
     for (;;)
     {
-        const char *begin = path;
-        int contin = parse_name(&path);
-        unsigned name_len = path - begin;
+        if (!parse_name(&begin, &path)) break;
 
+        unsigned name_len = path - begin;
         int matched = 0;
 
         for (unsigned i = 0; i < dir->entry_count; i++)
@@ -134,11 +139,6 @@ int fs_find_block(client_t *cl, unsigned root, const char *path, unsigned *id, u
         }
 
         if (!matched) return -FSERR_NOT_FOUND;
-
-        if (!contin)
-        {
-            return 0;
-        }
     }
 
     return 0;
