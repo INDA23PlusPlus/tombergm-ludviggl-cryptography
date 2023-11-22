@@ -115,24 +115,16 @@ int fs_find_block(client_t *cl, unsigned root, const char *path, unsigned *id, u
         unsigned name_len = path - begin;
         int matched = 0;
 
-        printf("GOTO: %.*s\n", name_len, begin);
-        printf("entry count: %d\n", dir->entry_count);
-
         for (unsigned i = 0; i < dir->entry_count; i++)
         {
             fs_dir_entry_t *entry = &dir->entries[i];
 
-            printf("TRY ENTRY %d\n", i);
-
             if (!entry->used) continue;
-
-            printf("MATCH: %s\n", entry->name);
 
             unsigned entry_name_len = strlen(entry->name);
 
             if (entry_name_len == name_len && memcmp(entry->name, begin, name_len) == 0)
             {
-                printf("    It exists!\n");
                 *id = entry->id;
                 *type = entry->type;
                 if (*type == FS_FILE)
