@@ -22,7 +22,7 @@ static inline void cblk_set_valid(cblk_t *cblk, int valid)
 	}
 	else
 	{
-		cblk->flags &= CACHE_VALID;
+		cblk->flags &= ~CACHE_VALID;
 	}
 }
 
@@ -34,7 +34,7 @@ static inline void cblk_set_dirty(cblk_t *cblk, int dirty)
 	}
 	else
 	{
-		cblk->flags &= CACHE_DIRTY;
+		cblk->flags &= ~CACHE_DIRTY;
 	}
 }
 
