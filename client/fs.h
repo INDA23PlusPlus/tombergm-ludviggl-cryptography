@@ -31,7 +31,7 @@ typedef struct {
 } fs_super_t;
 
 typedef struct {
-    unsigned free;
+    unsigned used;
     unsigned type;
     char     name[NAME_MAX_LEN];
     unsigned id;

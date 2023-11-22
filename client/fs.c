@@ -120,7 +120,7 @@ int fs_find_block(client_t *cl, unsigned root, const char *path, unsigned *id, u
         {
             fs_dir_entry_t *entry = &dir->entries[i];
 
-            if (entry->free) continue;
+            if (!entry->used) continue;
 
             unsigned entry_name_len = strlen(entry->name);
 
@@ -159,7 +159,7 @@ int fs_create_dir(client_t *cl, unsigned dir, const char *name)
     for (unsigned i = 0; i <= dir_ptr->entry_count; i++)
     {
         fs_dir_entry_t *entry = &dir_ptr->entries[i];
-        if (entry->free)
+        if (!entry->used)
         {
             unsigned id = block_alloc(cl);
             if (id == 0) return -FSERR_OOM;
@@ -173,6 +173,7 @@ int fs_create_dir(client_t *cl, unsigned dir, const char *name)
 
             entry->id   = id;
             entry->type = FS_DIR;
+            entry->used = 1;
 
             memcpy(entry->name, name, name_len);
 
@@ -199,7 +200,7 @@ int fs_create_file(client_t *cl, unsigned dir, const char *name)
     for (unsigned i = 0; i <= dir_ptr->entry_count; i++)
     {
         fs_dir_entry_t *entry = &dir_ptr->entries[i];
-        if (entry->free)
+        if (!entry->used)
         {
             unsigned id = block_alloc(cl);
             if (id == 0) return -FSERR_OOM;
@@ -211,6 +212,7 @@ int fs_create_file(client_t *cl, unsigned dir, const char *name)
 
             entry->id = id;
             entry->type = FS_FILE;
+            entry->used = 1;
             memcpy(entry->name, name, name_len);
 
             dir_ptr->free_count--;
@@ -233,7 +235,7 @@ int fs_delete_file(client_t *cl, unsigned id)
     }
 
     fs_dir_t *parent = verify_ptr(cache_get_blk(cl->dir_cache, file_ptr->parent));
-    parent->entries[file_ptr->entry_id].free = 1;
+    parent->entries[file_ptr->entry_id].used = 0;
     parent->free_count++;
     if (block_free(cl, id) != 0) return FSERR_IO;
 
@@ -246,7 +248,7 @@ int fs_delete_dir(client_t *cl, unsigned id)
     for (int i = 0; i < DIR_MAX_ENTRIES; i++)
     {
         fs_dir_entry_t *entry = &dir->entries[i];
-        if (!entry->free)
+        if (entry->used)
         {
             switch (entry->type)
             {
