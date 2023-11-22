@@ -169,7 +169,18 @@ int fs_create_dir(client_t *cl, unsigned dir, const char *name)
             memset(this_dir, 0, sizeof*(this_dir));
             this_dir->parent     = dir;
             this_dir->entry_id   = i;
-            this_dir->free_count = DIR_MAX_ENTRIES;
+            this_dir->free_count = DIR_MAX_ENTRIES - 2;
+
+            // add . and .. entries
+            this_dir->entries[0].used = 1;
+            this_dir->entries[0].type = FS_DIR;
+            memcpy(this_dir->entries[0].name, ".", 2);
+            this_dir->entries[0].id = id;
+
+            this_dir->entries[1].used = 1;
+            this_dir->entries[1].type = FS_DIR;
+            memcpy(this_dir->entries[1].name, "..", 3);
+            this_dir->entries[1].id = dir;
 
             entry->id   = id;
             entry->type = FS_DIR;
