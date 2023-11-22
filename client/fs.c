@@ -227,6 +227,7 @@ int fs_create_file(client_t *cl, unsigned dir, const char *name, unsigned *id)
 
             fs_file_t *file = verify_ptr(cache_get_blk(cl->dir_cache, fid));
 
+            file->size     = 0;
             file->parent   = dir;
             file->entry_id = i;
 
@@ -419,4 +420,11 @@ unsigned fs_get_root(client_t *cl)
     fs_super_t *super = cache_get_blk(cl->sb_cache, SUPER_ID);
     if (super == NULL) return 0;
     return super->root;
+}
+
+int fs_get_file_size(client_t *cl, unsigned id, unsigned *size)
+{
+    fs_file_t *file = verify_ptr(cache_get_blk(cl->dir_cache, id));
+    *size = file->size;
+    return 0;
 }
