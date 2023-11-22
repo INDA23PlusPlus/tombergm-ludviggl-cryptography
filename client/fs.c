@@ -5,6 +5,8 @@
 
 #include <string.h>
 
+#define SUPER_ID 0
+
 #define get_block(id) 0
 
 #define verify_ptr(ptr)\
@@ -16,7 +18,8 @@
 
 static unsigned block_alloc(client_t *cl)
 {
-    fs_super_t *super = verify_ptr(cache_get_blk(cl->sb_cache, 0));
+    // TODO: Make super parameter
+    fs_super_t *super = verify_ptr(cache_get_blk(cl->sb_cache, SUPER_ID));
 
     unsigned map_count = super->map_count;
     unsigned map_id    = 1;
@@ -62,7 +65,7 @@ static int block_free(client_t *cl, unsigned id)
 
 int fs_init(client_t *cl, unsigned map_count)
 {
-    fs_super_t *super = verify_ptr(cache_get_blk(cl->sb_cache, 0));
+    fs_super_t *super = verify_ptr(cache_get_blk(cl->sb_cache, SUPER_ID));
 
     super->total_count = map_count * BLOCK_SIZE * 8;
     super->free_count  = super->total_count;
@@ -73,9 +76,11 @@ int fs_init(client_t *cl, unsigned map_count)
 
     memset(root, 0, BLOCK_SIZE);
 
-    root->entry_count      = 0;
-
+    root->entry_count = 0;
     super->root = root_id;
+
+    cache_dirty_blk(cl->sb_cache, SUPER_ID);
+    cache_dirty_blk(cl->dir_cache, root_id);
 
     return 0;
 }
@@ -101,7 +106,7 @@ static int parse_name(const char **begin, const char **path)
 
 int fs_find_block(client_t *cl, unsigned root, const char *path, unsigned *id, unsigned *type)
 {
-    fs_super_t *super = verify_ptr(cache_get_blk(cl->sb_cache, 0));
+    fs_super_t *super = verify_ptr(cache_get_blk(cl->sb_cache, SUPER_ID));
     *id = super->root;
     *type = FS_DIR;
     fs_dir_t *dir = verify_ptr(cache_get_blk(cl->dir_cache, *id));
@@ -145,7 +150,7 @@ int fs_find_block(client_t *cl, unsigned root, const char *path, unsigned *id, u
 
 int fs_create_dir(client_t *cl, unsigned dir, const char *name, unsigned *id)
 {
-    fs_super_t *super_ptr = verify_ptr(cache_get_blk(cl->sb_cache, 0));
+    fs_super_t *super_ptr = verify_ptr(cache_get_blk(cl->sb_cache, SUPER_ID));
 
     unsigned name_len = strlen(name) + 1; // include \0
 
@@ -190,6 +195,8 @@ int fs_create_dir(client_t *cl, unsigned dir, const char *name, unsigned *id)
             dir_ptr->entry_count++;
 
             *id = did;
+            cache_dirty_blk(cl->dir_cache, did);
+            cache_dirty_blk(cl->dir_cache, dir);
 
             return 0;
         }
@@ -200,7 +207,7 @@ int fs_create_dir(client_t *cl, unsigned dir, const char *name, unsigned *id)
 
 int fs_create_file(client_t *cl, unsigned dir, const char *name, unsigned *id)
 {
-    fs_super_t *super_ptr = verify_ptr(cache_get_blk(cl->sb_cache, 0));
+    fs_super_t *super_ptr = verify_ptr(cache_get_blk(cl->sb_cache, SUPER_ID));
 
     unsigned name_len = strlen(name) + 1; // include \0
 
@@ -231,6 +238,8 @@ int fs_create_file(client_t *cl, unsigned dir, const char *name, unsigned *id)
             dir_ptr->entry_count++;
 
             *id = fid;
+            cache_dirty_blk(cl->dir_cache, dir);
+            cache_dirty_blk(cl->dir_cache, fid);
 
             return 0;
         }
@@ -252,6 +261,9 @@ int fs_delete_file(client_t *cl, unsigned id)
     fs_dir_t *parent = verify_ptr(cache_get_blk(cl->dir_cache, file_ptr->parent));
     parent->entries[file_ptr->entry_id].used = 0;
     parent->entry_count--;
+
+    cache_dirty_blk(cl->dir_cache, file_ptr->parent);
+
     if (block_free(cl, id) != 0) return FSERR_IO;
 
     return 0;
@@ -283,6 +295,8 @@ int fs_delete_dir(client_t *cl, unsigned id)
     fs_dir_t *parent = verify_ptr(cache_get_blk(cl->dir_cache, dir->parent));
     parent->entries[dir->entry_id].used = 0;
     parent->entry_count--;
+
+    cache_dirty_blk(cl->dir_cache, dir->parent);
 
     return 0;
 }
@@ -320,6 +334,7 @@ int fs_write_file(client_t *cl, unsigned file, const char *buf, size_t size, siz
         block_id = file_ptr->blocks[fsbi];
         block = verify_ptr(cache_get_blk(cl->reg_cache, block_id));
         memcpy(block + fpo, buf, size);
+        cache_dirty_blk(cl->reg_cache, block_id);
         return 0;
     }
 
@@ -327,6 +342,7 @@ int fs_write_file(client_t *cl, unsigned file, const char *buf, size_t size, siz
     block_id = file_ptr->blocks[fsbi];
     block = verify_ptr(cache_get_blk(cl->reg_cache, fsbi));
     memcpy(block + fpo, buf, BLOCK_SIZE - fpo);
+    cache_dirty_blk(cl->reg_cache, block_id);
 
     // write intermediate blocks
     for (unsigned sbi = fsbi + 1, bo = BLOCK_SIZE - fpo; sbi < lsbi; sbi++, bo += BLOCK_SIZE)
@@ -334,6 +350,7 @@ int fs_write_file(client_t *cl, unsigned file, const char *buf, size_t size, siz
         block_id = file_ptr->blocks[sbi];
         block = verify_ptr(cache_get_blk(cl->reg_cache, fsbi));
         memcpy(block, buf + bo, BLOCK_SIZE);
+        cache_dirty_blk(cl->reg_cache, block_id);
     }
 
     // write last block
@@ -341,6 +358,7 @@ int fs_write_file(client_t *cl, unsigned file, const char *buf, size_t size, siz
     block = verify_ptr(cache_get_blk(cl->reg_cache, fsbi));
     unsigned lsbo = BLOCK_SIZE * (lsbi - fsbi) - fpo;
     memcpy(block, buf + lsbo, lpo);
+    cache_dirty_blk(cl->reg_cache, block_id);
 
     return 0;
 }
@@ -398,7 +416,7 @@ int fs_read_file(client_t *cl, unsigned file, char *buf, size_t size, size_t off
 
 unsigned fs_get_root(client_t *cl)
 {
-    fs_super_t *super = cache_get_blk(cl->sb_cache, 0);
+    fs_super_t *super = cache_get_blk(cl->sb_cache, SUPER_ID);
     if (super == NULL) return 0;
     return super->root;
 }
