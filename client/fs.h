@@ -53,7 +53,7 @@ typedef struct {
     unsigned blocks[];
 } fs_file_t;
 
-int fs_init(void);
+int fs_init(client_t *cl, unsigned max_blocks);
 int fs_find_block(client_t *cl, unsigned root, const char *path, unsigned *id, unsigned *type);
 int fs_create_dir(client_t *cl, unsigned dir, const char *name);
 int fs_create_file(client_t *cl, unsigned dir, const char * name);

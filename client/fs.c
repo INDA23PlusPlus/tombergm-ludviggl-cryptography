@@ -14,8 +14,24 @@
         __ptr;\
     })
 
-int fs_init(void)
+int fs_init(client_t *cl, unsigned map_count)
 {
+    fs_super_t *super = verify_ptr(cache_get_blk(cl->sb_cache, 0));
+
+    super->total_count = map_count * BLOCK_SIZE * 8;
+    super->free_count  = super->total_count;
+    super->map_count   = map_count;
+
+    unsigned root_id = block_alloc(cl);
+    fs_dir_t *root   = verify_ptr(cache_get_blk(cl->dir_cache, root_id));
+
+    memset(root, 0, BLOCK_SIZE);
+
+    root->free_count = DIR_MAX_ENTRIES;
+    entry_count      = 0;
+
+    super->root = root;
+
     return 0;
 }
 
@@ -24,7 +40,7 @@ static unsigned block_alloc(client_t *cl)
     fs_super_t *super = verify_ptr(cache_get_blk(cl->sb_cache, 0));
 
     unsigned map_count = super->map_count;
-    unsigned map_id = 1;
+    unsigned map_id    = 1;
     unsigned char *map = verify_ptr(cache_get_blk(cl->sb_cache, map_id));
 
     for (unsigned byte_id = map_count; byte_id < BLOCK_SIZE * map_count; byte_id++)
@@ -51,16 +67,28 @@ static unsigned block_alloc(client_t *cl)
     return 0;
 }
 
-static void block_free(client_t *cl, unsigned id)
+static int block_free(client_t *cl, unsigned id)
 {
+    fs_super_t *super = verify_ptr(cache_get_blk(&cl->sb_cache, 0));
+
+    unsigned byte_id     = id / 8;
+    unsigned byte_offset = id % 8;
+    unsigned map_id      = 1 + byte_id / BLOCK_SIZE;
+    unsigned map_offset  = byte_id % BLOCK_SIZE;
+
+    unsigned char *map = verify_ptr(cache_get_blk(&cl->sb_cache, map_id));
+
+    map[map_offset] &= ~(1 << byte_offset);
+
+    return 0;
 }
 
 static int parse_name(const char **path)
 {
     if (**path == '\0') return 0;
 
-    while (**path == '\\') (*path)++;
-    while (**path != '\\')
+    while (**path == '/') (*path)++;
+    while (**path != '/')
     {
         if (**path == '\0')
         {
@@ -203,13 +231,13 @@ int fs_delete_file(client_t *cl, unsigned id)
 
     for (unsigned i = 0; i < block_count; i++)
     {
-        block_free(cl, file_ptr->blocks[id]);
+        if (block_free(cl, file_ptr->blocks[id]) != 0) return FSERR_IO;
     }
 
     fs_dir_t *parent = verify_ptr(cache_get_blk(cl->dir_cache, file_ptr->parent));
     parent->entries[file_ptr->entry_id].free = 1;
     parent->free_count++;
-    block_free(cl, id);
+    if (block_free(cl, id) != 0) return FSERR_IO;
 
     return 0;
 }
@@ -235,7 +263,8 @@ int fs_delete_dir(client_t *cl, unsigned id)
             }
         }
     }
-    block_free(cl, id);
+
+    if (block_free(cl, id) != 0) return FSERR_IO;
 
     return 0;
 }
