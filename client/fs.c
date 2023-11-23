@@ -41,6 +41,7 @@ static unsigned block_alloc(client_t *cl)
             if (!((*byte >> offset) & 1))
             {
                 *byte |= (1 << offset);
+                cache_dirty_blk(cl->sb_cache, map_id);
                 return byte_id * 8 + offset;
             }
         }
@@ -59,20 +60,21 @@ static int block_free(client_t *cl, unsigned id)
     unsigned char *map = verify_ptr(cache_get_blk(cl->sb_cache, map_id));
 
     map[map_offset] &= ~(1 << byte_offset);
+    cache_dirty_blk(cl->sb_cache, map_id);
 
     return 0;
 }
 
 int fs_init(client_t *cl, unsigned map_count)
 {
-    fs_super_t *super = verify_ptr(cache_get_blk(cl->sb_cache, SUPER_ID));
+    fs_super_t *super = verify_ptr(cache_claim_blk(cl->sb_cache, SUPER_ID));
 
     super->total_count = map_count * BLOCK_SIZE * 8;
     super->free_count  = super->total_count;
     super->map_count   = map_count;
 
     unsigned root_id = block_alloc(cl);
-    fs_dir_t *root   = verify_ptr(cache_get_blk(cl->dir_cache, root_id));
+    fs_dir_t *root   = verify_ptr(cache_claim_blk(cl->dir_cache, root_id));
 
     memset(root, 0, BLOCK_SIZE);
 
@@ -168,7 +170,7 @@ int fs_create_dir(client_t *cl, unsigned dir, const char *name, unsigned *id)
             unsigned did = block_alloc(cl);
             if (did == 0) return -FSERR_OOM;
 
-            fs_dir_t *this_dir = verify_ptr(cache_get_blk(cl->dir_cache, did));
+            fs_dir_t *this_dir = verify_ptr(cache_claim_blk(cl->dir_cache, did));
 
             memset(this_dir, 0, sizeof*(this_dir));
             this_dir->parent      = dir;
@@ -225,7 +227,7 @@ int fs_create_file(client_t *cl, unsigned dir, const char *name, unsigned *id)
             unsigned fid = block_alloc(cl);
             if (fid == 0) return -FSERR_OOM;
 
-            fs_file_t *file = verify_ptr(cache_get_blk(cl->dir_cache, fid));
+            fs_file_t *file = verify_ptr(cache_claim_blk(cl->dir_cache, fid));
 
             file->size     = 0;
             file->parent   = dir;
@@ -349,7 +351,7 @@ int fs_write_file(client_t *cl, unsigned file, const char *buf, size_t size, siz
     for (unsigned sbi = fsbi + 1, bo = BLOCK_SIZE - fpo; sbi < lsbi; sbi++, bo += BLOCK_SIZE)
     {
         block_id = file_ptr->blocks[sbi];
-        block = verify_ptr(cache_get_blk(cl->reg_cache, fsbi));
+        block = verify_ptr(cache_claim_blk(cl->reg_cache, fsbi));
         memcpy(block, buf + bo, BLOCK_SIZE);
         cache_dirty_blk(cl->reg_cache, block_id);
     }
