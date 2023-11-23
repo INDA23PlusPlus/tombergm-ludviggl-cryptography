@@ -84,15 +84,76 @@ static int fs_open(const char *path, struct fuse_file_info *fi)
     if (root == 0) return -EIO;
 
     res = fs_find_block(&cl, root, path, &id, &type);
-    if (res == FSERR_NOT_FOUND) return -ENOENT;
-    if (res == FSERR_IO) return -EIO;
-    if (type == FS_DIR) return -EISDIR;
+    if (res == -FSERR_NOT_FOUND) return -ENOENT;
+    if (res == -FSERR_IO) return -EIO;
+    if (type == -FS_DIR) return -EISDIR;
 
 	return 0;
 }
 
+static int split_path(const char *path, char *lbuf, char *rbuf)
+{
+    unsigned len = strlen(path);
+    unsigned split_id;
+    const char *split = NULL;
+
+    for (unsigned i = len - 1; i >= 0; i--)
+    {
+        if (path[i] == '/')
+        {
+            split_id = i + 1;
+            split    = path + split_id;
+            break;
+        }
+    }
+
+    if (split)
+    {
+        memcpy(lbuf, path, split_id);
+        lbuf[split_id] = '\0';
+        memcpy(rbuf, path + split_id, len - split_id);
+        rbuf[len - split_id] = '\0';
+        return 1;
+    }
+    else return 0;
+}
+
 static int fs_truncate(const char *path, off_t length)
 {
+    unsigned root, file_id, type;
+    int res;
+
+    root = fs_get_root(&cl);
+    if (root == 0) return -EIO;
+
+    res = fs_find_block(&cl, root, path, &file_id, &type);
+    if (res == -FSERR_IO) return -EIO;
+    if (res == -FSERR_NOT_FOUND)
+    {
+        char dir_path[64];
+        char filename[64];
+
+        if (!split_path(path, dir_path, filename)) return -ENOENT;
+
+        unsigned dir_id;
+        res = fs_find_block(&cl, root, dir_path, &dir_id, &type);
+        if (res == -FSERR_IO) return -EIO;
+        if (res == -FSERR_NOT_FOUND) return -ENOENT;
+        if (type == FS_FILE) return -ENOTDIR;
+
+        unsigned file_id;
+        res = fs_create_file(&cl, dir_id, filename, &file_id);
+        if (res == -FSERR_IO) return -EIO;
+        if (res == -FSERR_OOM || res == -FSERR_FULL_DIR) return -ENOMEM;
+        if (res == -FSERR_LONG_NAME) return -ENAMETOOLONG;
+    }
+    else
+    if (type == FS_DIR) return -EISDIR;
+
+    res = fs_truncate_file(&cl, file_id, length);
+    if (res == -FSERR_IO) return -EIO;
+    if (res == -FSERR_OOM) return -ENOMEM;
+
 	return 0;
 }
 
