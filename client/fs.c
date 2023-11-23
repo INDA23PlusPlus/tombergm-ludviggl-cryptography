@@ -438,8 +438,8 @@ int fs_truncate_file(client_t *cl, unsigned id, unsigned size)
     int ret = 0;
     fs_file_t *file = verify_ptr(cache_get_blk(cl->dir_cache, id));
 
-    unsigned bc  = file->size / BLOCK_SIZE;
-    unsigned nbc = size / BLOCK_SIZE;
+    unsigned bc  = file->size / BLOCK_SIZE + 1;
+    unsigned nbc = size / BLOCK_SIZE + 1;
 
     if (file->size > size)
     {
