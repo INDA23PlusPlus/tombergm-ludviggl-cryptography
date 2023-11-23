@@ -61,6 +61,7 @@ int fs_delete_block(client_t *cl, unsigned dir);
 int fs_write_file(client_t *cl, unsigned file, const char *buf, size_t size, size_t offset, size_t *bytes_written);
 int fs_read_file(client_t *cl, unsigned file, char *buf, size_t size, size_t offset, size_t *bytes_read);
 int fs_get_file_size(client_t *cl, unsigned id, unsigned *size);
+int fs_truncate_file(client_t *cl, unsigned id, unsigned size);
 unsigned fs_get_root(client_t *cl);
 
 #endif

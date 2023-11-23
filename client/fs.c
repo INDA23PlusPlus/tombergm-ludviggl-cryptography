@@ -433,6 +433,58 @@ int fs_read_file(client_t *cl, unsigned file, char *buf, size_t size, size_t off
     return 0;
 }
 
+int fs_truncate_file(client_t *cl, unsigned id, unsigned size)
+{
+    int ret = 0;
+    fs_file_t *file = verify_ptr(cache_get_blk(cl->dir_cache, id));
+
+    unsigned bc  = file->size / BLOCK_SIZE;
+    unsigned nbc = size / BLOCK_SIZE;
+
+    if (file->size > size)
+    {
+        for (int i = nbc; i < bc; i++)
+        {
+            unsigned sbi = file->blocks[i];
+            ret = block_free(cl, sbi);
+            if (ret < 0) return ret;
+        }
+    }
+    else
+    if (file->size < size)
+    {
+        unsigned eo  = file->size % BLOCK_SIZE;
+        unsigned neo = size % BLOCK_SIZE;
+
+        unsigned block_id = file->blocks[bc - 1];
+        void *block = verify_ptr(cache_get_blk(cl->reg_cache, block_id));
+
+        if (bc == nbc)
+        {
+            memset(block + eo, 0, neo - eo);
+            cache_dirty_blk(cl->reg_cache, block_id);
+        }
+        else
+        {
+            memset(block + eo, 0, BLOCK_SIZE - eo);
+            cache_dirty_blk(cl->reg_cache, block_id);
+
+            for (unsigned i = bc; i < nbc; i++)
+            {
+                block_id = block_alloc(cl);
+                if (block_id == 0) return -FSERR_OOM;
+
+                block = verify_ptr(cache_get_blk(cl->reg_cache, block_id));
+                file->blocks[i] = block_id;
+                memset(block, 0, BLOCK_SIZE);
+                cache_dirty_blk(cl->reg_cache, block_id);
+            }
+        }
+    }
+
+    return 0;
+}
+
 unsigned fs_get_root(client_t *cl)
 {
     fs_super_t *super = cache_get_blk(cl->sb_cache, SUPER_ID);
