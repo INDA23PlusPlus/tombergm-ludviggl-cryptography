@@ -304,10 +304,11 @@ int fs_delete_dir(client_t *cl, unsigned id)
     return 0;
 }
 
-int fs_write_file(client_t *cl, unsigned file, const char *buf, size_t size, size_t offset)
+int fs_write_file(client_t *cl, unsigned file, const char *buf, size_t size, size_t offset, size_t *bytes_written)
 {
     unsigned block_id;
     unsigned char *block;
+    *bytes_written = 0;
     fs_file_t *file_ptr = verify_ptr(cache_get_blk(cl->dir_cache, file));
 
     unsigned fsbi = offset / BLOCK_SIZE;                // first sub-block id
@@ -325,6 +326,7 @@ int fs_write_file(client_t *cl, unsigned file, const char *buf, size_t size, siz
     // allocate new blocks
     for (unsigned b = bc; b < rbc; b++)
     {
+        // TODO: Write what we can before failing to allocate?
         unsigned id = block_alloc(cl);
         if (id == 0) return -FSERR_OOM;
         file_ptr->blocks[b] = id;
@@ -338,6 +340,7 @@ int fs_write_file(client_t *cl, unsigned file, const char *buf, size_t size, siz
         block = verify_ptr(cache_get_blk(cl->reg_cache, block_id));
         memcpy(block + fpo, buf, size);
         cache_dirty_blk(cl->reg_cache, block_id);
+        *bytes_written = size;
         return 0;
     }
 
@@ -346,6 +349,7 @@ int fs_write_file(client_t *cl, unsigned file, const char *buf, size_t size, siz
     block = verify_ptr(cache_get_blk(cl->reg_cache, fsbi));
     memcpy(block + fpo, buf, BLOCK_SIZE - fpo);
     cache_dirty_blk(cl->reg_cache, block_id);
+    *bytes_written += BLOCK_SIZE - fpo;
 
     // write intermediate blocks
     for (unsigned sbi = fsbi + 1, bo = BLOCK_SIZE - fpo; sbi < lsbi; sbi++, bo += BLOCK_SIZE)
@@ -354,6 +358,7 @@ int fs_write_file(client_t *cl, unsigned file, const char *buf, size_t size, siz
         block = verify_ptr(cache_claim_blk(cl->reg_cache, fsbi));
         memcpy(block, buf + bo, BLOCK_SIZE);
         cache_dirty_blk(cl->reg_cache, block_id);
+        *bytes_written += BLOCK_SIZE;
     }
 
     // write last block
@@ -362,6 +367,7 @@ int fs_write_file(client_t *cl, unsigned file, const char *buf, size_t size, siz
     unsigned lsbo = BLOCK_SIZE * (lsbi - fsbi) - fpo;
     memcpy(block, buf + lsbo, lpo);
     cache_dirty_blk(cl->reg_cache, block_id);
+    *bytes_written += lpo;
 
     return 0;
 }
