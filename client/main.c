@@ -10,64 +10,15 @@
 #include <blk.h>
 #include "cache.h"
 #include "client.h"
+#include "fs.h"
 
 #define BLK_MAX	16
 
 static client_t cl;
 
-static int lookup_blk(const char *path, blk_id_t *blk_id)
-{
-	while (path[0] == '/')
-	{
-		path++;
-	}
-
-	if (path[0] == '0' && path[1] != '\0')
-	{
-		return -1;
-	}
-
-	int n;
-	if (sscanf(path, "%" SCNu64 "%n", blk_id, &n) != 1)
-	{
-		return -1;
-	}
-
-	if (*blk_id >= BLK_MAX)
-	{
-		return -1;
-	}
-
-	if (path[n] != '\0')
-	{
-		return -1;
-	}
-
-	return 0;
-}
-
 static int fs_getattr(const char *path, struct stat *stbuf)
 {
-	int		res	= 0;
-	blk_id_t	blk_id;
-
-	memset(stbuf, 0, sizeof(struct stat));
-
-	if (strcmp(path, "/") == 0)
-	{
-		stbuf->st_mode = S_IFDIR | 0755;
-		stbuf->st_nlink = 2;
-	}
-	else if (lookup_blk(path, &blk_id) == 0)
-	{
-		stbuf->st_mode = S_IFREG | 0644;
-		stbuf->st_nlink = 1;
-		stbuf->st_size = BLK_DATA_LEN;
-	}
-	else
-	{
-		res = -ENOENT;
-	}
+    // TODO
 
 	return res;
 }
@@ -75,34 +26,44 @@ static int fs_getattr(const char *path, struct stat *stbuf)
 static int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			off_t offset, struct fuse_file_info *fi)
 {
-	if (strcmp(path, "/") != 0)
-	{
-		return -ENOENT;
-	}
+    unsigned root, id, type;
+    int res;
 
-	filler(buf, "." , NULL, 0);
-	filler(buf, "..", NULL, 0);
+    root = fs_get_root(&cl);
+    if (root == 0) return -EIO;
 
-	for (int i = 0; i < BLK_MAX; i++)
-	{
-		char fname[32];
+    res = fs_find_block(&cl, root, path, &id, &type);
+    if (res == FSERR_NOT_FOUND) return -ENOENT;
+    if (res == FSERR_IO) return -EIO;
+    if (type == FS_FILE) return -ENOTDIR;
 
-		sprintf(fname, "%i", i);
+    fs_dir_t *dir = cache_get_blk(cl.dir_cache, id);
+    if (dir == 0) return -EIO;
 
-		filler(buf, fname , NULL, 0);
-	}
+    for (unsigned i = 0; i < dir->entry_count; i++)
+    {
+        fs_dir_entry_t *entry = &dir->entries[i];
+        if (entry->used)
+        {
+            filler(buf, entry->name, NULL, 0);
+        }
+    }
 
-	return 0;
+    return 0;
 }
 
 static int fs_open(const char *path, struct fuse_file_info *fi)
 {
-	blk_id_t	blk_id;
+    unsigned root, id, type;
+    int res;
 
-	if (lookup_blk(path, &blk_id) != 0)
-	{
-		return -ENOENT;
-	}
+    root = fs_get_root(&cl);
+    if (root == 0) return -EIO;
+
+    res = fs_find_block(&cl, root, path, &id, &type);
+    if (res == FSERR_NOT_FOUND) return -ENOENT;
+    if (res == FSERR_IO) return -EIO;
+    if (type == FS_DIR) return -EISDIR;
 
 	return 0;
 }
@@ -156,84 +117,43 @@ static int fs_truncate(const char *path, off_t length)
 static int fs_read(const char *path, char *buf, size_t size,
 			off_t offset, struct fuse_file_info *fi)
 {
-	blk_id_t	blk_id;
+    unsigned root, id, type;
+    size_t bread;
+    int res;
 
-	if (lookup_blk(path, &blk_id) != 0)
-	{
-		return -ENOENT;
-	}
+    root = fs_get_root(&cl);
+    if (root == 0) return -EIO;
 
-	if (offset < BLK_DATA_LEN)
-	{
-		if (offset + size > BLK_DATA_LEN)
-		{
-			size = BLK_DATA_LEN - offset;
-		}
-	}
-	else
-	{
-		size = 0;
-	}
+    res = fs_find_block(&cl, root, path, &id, &type);
+    if (res == FSERR_NOT_FOUND) return -ENOENT;
+    if (res == FSERR_IO) return -EIO;
+    if (type == FS_DIR) return -EISDIR;
 
-	if (size != 0)
-	{
-		char *blk = cache_get_blk(cl.reg_cache, blk_id);
+    res = fs_read_file(&cl, id, buf, size, offset, &bread);
+    if (res == FSERR_IO) return -EIO;
 
-		if (blk == NULL)
-		{
-			return -EIO;
-		}
-
-		memcpy(buf, &blk[offset], size);
-	}
-
-	return size;
+    return bread; // bon appetit
 }
 
 static int fs_write(const char *path, const char *buf, size_t size,
 			off_t offset, struct fuse_file_info *fi)
 {
-	blk_id_t	blk_id;
+    unsigned root, id, type;
+    size_t bwrit;
+    int res;
 
-	if (lookup_blk(path, &blk_id) != 0)
-	{
-		return -ENOENT;
-	}
+    root = fs_get_root(&cl);
+    if (root == 0) return -EIO;
 
-	if (offset < BLK_DATA_LEN)
-	{
-		if (offset + size > BLK_DATA_LEN)
-		{
-			size = BLK_DATA_LEN - offset;
-		}
-	}
-	else
-	{
-		size = 0;
-	}
+    res = fs_find_block(&cl, root, path, &id, &type);
+    if (res == FSERR_NOT_FOUND) return -ENOENT;
+    if (res == FSERR_IO) return -EIO;
+    if (type == FS_DIR) return -EISDIR;
 
-	if (size != 0)
-	{
-		char *blk;
+    res = fs_write_file(&cl, id, buf, size, offset, &bwrit);
+    if (res == FSERR_IO) return -EIO;
 
-		if (size == BLK_DATA_LEN)
-		{
-			blk = cache_claim_blk(cl.reg_cache, blk_id);
-		}
-		else
-		{
-			blk = cache_get_blk(cl.reg_cache, blk_id);
-		}
-
-		if (blk == NULL)
-		{
-			return -EIO;
-		}
-
-		memcpy(&blk[offset], buf, size);
-	}
-
-	return size;
+    return bwrit;
 }
 
 static struct fuse_operations fs_ops =
