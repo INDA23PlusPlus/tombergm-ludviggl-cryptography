@@ -105,6 +105,23 @@ static cblk_t *cache_find_blk(cache_t *cache, blk_id_t id)
 	return NULL;
 }
 
+static cblk_t *cache_find_ptr(cache_t *cache, void *ptr)
+{
+	for (int i = 0; i < cache->n_blk; i++)
+	{
+		cblk_t *cblk = &cache->blk[i];
+
+		if (	cblk_valid(cblk)				&&
+			(char *) ptr >=	&cblk->data[0]			&&
+			(char *) ptr <	&cblk->data[BLK_DATA_LEN]	)
+		{
+			return cblk;
+		}
+	}
+
+	return NULL;
+}
+
 cache_t *cache_new(client_t *cl, int n_blk)
 {
 	size_t size = sizeof(cache_t) + sizeof(cblk_t) * n_blk;
@@ -178,11 +195,35 @@ void cache_dirty_blk(cache_t *cache, blk_id_t id)
 	}
 }
 
+void cache_dirty_ptr(cache_t *cache, void *ptr)
+{
+	cblk_t *cblk = cache_find_ptr(cache, ptr);
+
+	if (cblk != NULL)
+	{
+		cblk_set_dirty(cblk, 1);
+	}
+}
+
 int cache_flush_blk(cache_t *cache, blk_id_t id)
 {
 	int ret = 0;
 
 	cblk_t *cblk = cache_find_blk(cache, id);
+
+	if (cblk != NULL)
+	{
+		ret = cblk_flush(cblk, cache->cl);
+	}
+
+	return ret;
+}
+
+int cache_flush_ptr(cache_t *cache, void *ptr)
+{
+	int ret = 0;
+
+	cblk_t *cblk = cache_find_ptr(cache, ptr);
 
 	if (cblk != NULL)
 	{

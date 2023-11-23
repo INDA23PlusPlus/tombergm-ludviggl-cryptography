@@ -412,6 +412,12 @@ int server_stop(server_t *sv)
 	int	ret	= 0;
 	size_t	len;
 
+	if (lseek(sv->tree_fd, 0, SEEK_SET) == -1)
+	{
+		ret = -1;
+		perror("error: lseek");
+	}
+
 	len = mtree_size(sv->mtree) * sizeof*(sv->mtree->nodes);
 	if (write(sv->tree_fd, &sv->mtree->nodes, len) != len)
 	{
