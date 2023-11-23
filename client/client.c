@@ -452,3 +452,14 @@ int client_wr_blk(client_t *cl, blk_t *blk, blk_id_t id)
 
 	return 0;
 }
+
+int client_flush_all(client_t *cl)
+{
+    int ret;
+
+    if ((ret = cache_flush(cl->sb_cache)))  return ret;
+    if ((ret = cache_flush(cl->dir_cache))) return ret;
+    if ((ret = cache_flush(cl->reg_cache))) return ret;
+
+    return 0;
+}
