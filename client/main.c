@@ -11,6 +11,7 @@
 #include "cache.h"
 #include "client.h"
 #include "fs.h"
+#include "err.h"
 
 #define BLK_MAX	16
 
@@ -18,6 +19,8 @@ static client_t cl;
 
 static int fs_getattr(const char *path, struct stat *stbuf)
 {
+    log("%s, path=%s\n", __func__, path);
+
     unsigned root, id, type;
     int res;
 
@@ -49,6 +52,8 @@ static int fs_getattr(const char *path, struct stat *stbuf)
 static int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			off_t offset, struct fuse_file_info *fi)
 {
+    log("%s, path=%s\n", __func__, path);
+
     unsigned root, id, type;
     int res;
 
@@ -77,6 +82,8 @@ static int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
 static int fs_open(const char *path, struct fuse_file_info *fi)
 {
+    log("%s, path=%s\n", __func__, path);
+
     unsigned root, id, type;
     int res;
 
@@ -118,8 +125,84 @@ static int split_path(const char *path, char *lbuf, char *rbuf)
     else return 0;
 }
 
+static int fs_mkdir(const char *path, mode_t mode)
+{
+    (void)mode;
+    log("%s, path=%s\n", __func__, path);
+
+    unsigned root, id, type;
+    int res;
+
+    root = fs_get_root(&cl);
+    if (root == 0) return -EIO;
+
+    res = fs_find_block(&cl, root, path, &id, &type);
+    if (res == -FSERR_IO) return -EIO;
+    if (res != -FSERR_NOT_FOUND) return -EEXIST;
+
+    char lbuf[64];
+    char rbuf[64];
+
+    if (!split_path(path, lbuf, rbuf)) return -ENOENT;
+
+    unsigned pid;
+    res = fs_find_block(&cl, root, lbuf, &pid, &type);
+    if (res == -FSERR_IO) return -EIO;
+    if (res == -FSERR_NOT_FOUND) return -ENOENT;
+    if (type == FS_FILE) return -EISDIR;
+
+    res = fs_create_dir(&cl, pid, rbuf, &id);
+    if (res == -FSERR_IO) return -EIO;
+    if (res == -FSERR_LONG_NAME) return -ENAMETOOLONG;
+    if (res == -FSERR_OOM || res == -FSERR_FULL_DIR) return -ENOMEM;
+
+    client_flush_all(&cl);
+
+    return 0;
+}
+
+static int fs_create(const char *path, mode_t mode, struct fuse_file_info *info)
+{
+    (void)info;
+    (void)mode;
+
+    log("%s, path=%s\n", __func__, path);
+
+    unsigned root, id, type;
+    int res;
+
+    root = fs_get_root(&cl);
+    if (root == 0) return -EIO;
+
+    res = fs_find_block(&cl, root, path, &id, &type);
+    if (res == -FSERR_IO) return -EIO;
+    if (res != -FSERR_NOT_FOUND) return -EEXIST;
+
+    char lbuf[64];
+    char rbuf[64];
+
+    if (!split_path(path, lbuf, rbuf)) return -ENOENT;
+
+    unsigned pid;
+    res = fs_find_block(&cl, root, lbuf, &pid, &type);
+    if (res == -FSERR_IO) return -EIO;
+    if (res == -FSERR_NOT_FOUND) return -ENOENT;
+    if (type == FS_FILE) return -EISDIR;
+
+    res = fs_create_file(&cl, pid, rbuf, &id);
+    if (res == -FSERR_IO) return -EIO;
+    if (res == -FSERR_LONG_NAME) return -ENAMETOOLONG;
+    if (res == -FSERR_OOM || res == -FSERR_FULL_DIR) return -ENOMEM;
+
+    client_flush_all(&cl);
+
+    return 0;
+}
+
 static int fs_truncate(const char *path, off_t length)
 {
+    log("%s, path=%s\n", __func__, path);
+
     unsigned root, file_id, type;
     int res;
 
@@ -128,26 +211,7 @@ static int fs_truncate(const char *path, off_t length)
 
     res = fs_find_block(&cl, root, path, &file_id, &type);
     if (res == -FSERR_IO) return -EIO;
-    if (res == -FSERR_NOT_FOUND)
-    {
-        char dir_path[64];
-        char filename[64];
-
-        if (!split_path(path, dir_path, filename)) return -ENOENT;
-
-        unsigned dir_id;
-        res = fs_find_block(&cl, root, dir_path, &dir_id, &type);
-        if (res == -FSERR_IO) return -EIO;
-        if (res == -FSERR_NOT_FOUND) return -ENOENT;
-        if (type == FS_FILE) return -ENOTDIR;
-
-        unsigned file_id;
-        res = fs_create_file(&cl, dir_id, filename, &file_id);
-        if (res == -FSERR_IO) return -EIO;
-        if (res == -FSERR_OOM || res == -FSERR_FULL_DIR) return -ENOMEM;
-        if (res == -FSERR_LONG_NAME) return -ENAMETOOLONG;
-    }
-    else
+    if (res == -FSERR_NOT_FOUND) return -ENOENT;
     if (type == FS_DIR) return -EISDIR;
 
     res = fs_truncate_file(&cl, file_id, length);
@@ -160,6 +224,8 @@ static int fs_truncate(const char *path, off_t length)
 static int fs_read(const char *path, char *buf, size_t size,
 			off_t offset, struct fuse_file_info *fi)
 {
+    log("%s, path=%s\n", __func__, path);
+
     unsigned root, id, type;
     size_t bread;
     int res;
@@ -181,6 +247,8 @@ static int fs_read(const char *path, char *buf, size_t size,
 static int fs_write(const char *path, const char *buf, size_t size,
 			off_t offset, struct fuse_file_info *fi)
 {
+    log("%s, path=%s\n", __func__, path);
+
     unsigned root, id, type;
     size_t bwrit;
     int res;
@@ -207,6 +275,8 @@ static struct fuse_operations fs_ops =
 	.open		= fs_open,
 	.read		= fs_read,
 	.write		= fs_write,
+    .mkdir      = fs_mkdir,
+    .create     = fs_create,
 };
 
 int main(int argc, char *argv[])

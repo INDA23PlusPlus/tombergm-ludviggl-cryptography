@@ -10,6 +10,7 @@
 #include <cmd.h>
 #include <mtree.h>
 #include "server.h"
+#include "err.h"
 
 static int send_mtree(server_t *sv, blk_id_t blk_id)
 {
@@ -69,6 +70,7 @@ static int server_rd_blk(server_t *sv)
 		perror("error: recv");
 		return -1;
 	}
+    log("read block %d\n", (int)id);
 
 	len = sizeof(blk.data);
 	ret = lseek(sv->data_fd, (off_t) len * id, SEEK_SET);
@@ -150,6 +152,7 @@ static int server_wr_blk(server_t *sv)
 		perror("error: recv");
 		return -1;
 	}
+    log("write block %d\n", (int)id);
 
 	ret = recv(sv->sock_fd, &blk, sizeof(blk), MSG_WAITALL);
 	if (ret != sizeof(blk))

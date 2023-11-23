@@ -14,6 +14,8 @@
 #include "cache.h"
 #include "client.h"
 #include "mtree.h"
+#include "err.h"
+#include "fs.h"
 
 static int update_top(client_t *cl, char (*hash)[MTREE_HASH_LEN])
 {
@@ -190,6 +192,13 @@ static int client_new_sys(client_t *cl)
 	{
 		goto exit;
 	}
+
+    ret = fs_init(cl, 4);
+    if (ret != 0)
+    {
+        ret = -1;
+        goto exit;
+    }
 
 	ret = 0;
 
