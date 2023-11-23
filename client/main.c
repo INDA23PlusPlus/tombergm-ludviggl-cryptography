@@ -267,6 +267,14 @@ static int fs_write(const char *path, const char *buf, size_t size,
     return bwrit;
 }
 
+int fs_utimens(const char *path, const struct timespec specs[2])
+{
+    (void)path;
+    (void)specs;
+
+    return 0;
+}
+
 static struct fuse_operations fs_ops =
 {
 	.getattr	= fs_getattr,
@@ -277,6 +285,7 @@ static struct fuse_operations fs_ops =
 	.write		= fs_write,
     .mkdir      = fs_mkdir,
     .create     = fs_create,
+    .utimens    = fs_utimens,
 };
 
 int main(int argc, char *argv[])
