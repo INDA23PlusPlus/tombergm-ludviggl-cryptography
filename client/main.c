@@ -18,9 +18,32 @@ static client_t cl;
 
 static int fs_getattr(const char *path, struct stat *stbuf)
 {
-    // TODO
+    unsigned root, id, type;
+    int res;
 
-	return res;
+    root = fs_get_root(&cl);
+    if (root == 0) return -EIO;
+
+    res = fs_find_block(&cl, root, path, &id, &type);
+    if (res == FSERR_NOT_FOUND) return -ENOENT;
+    if (res == FSERR_IO) return -EIO;
+
+    if (type == FS_DIR)
+    {
+        stbuf->st_mode  = S_IFDIR | 0755;
+        stbuf->st_nlink = 2;
+    }
+    else
+    {
+        fs_file_t *f = cache_get_blk(cl.dir_cache, id);
+        if (f == NULL) return -EIO;
+
+        stbuf->st_mode  = S_IFREG | 0777;
+        stbuf->st_nlink = 1;
+        stbuf->st_size  = f->size;
+    }
+
+	return 0;
 }
 
 static int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
@@ -70,47 +93,6 @@ static int fs_open(const char *path, struct fuse_file_info *fi)
 
 static int fs_truncate(const char *path, off_t length)
 {
-	blk_id_t	blk_id;
-
-	if (lookup_blk(path, &blk_id) != 0)
-	{
-		return -ENOENT;
-	}
-
-	size_t size;
-
-	if (length < BLK_DATA_LEN)
-	{
-		size = BLK_DATA_LEN - length;
-	}
-	else
-	{
-		size = BLK_DATA_LEN;
-	}
-
-	if (size != 0)
-	{
-		char *blk;
-
-		if (size == BLK_DATA_LEN)
-		{
-			blk = cache_claim_blk(cl.reg_cache, blk_id);
-		}
-		else
-		{
-			blk = cache_get_blk(cl.reg_cache, blk_id);
-		}
-
-		if (blk == NULL)
-		{
-			return -EIO;
-		}
-
-		memset(&blk[length], 0, size);
-
-		cache_dirty_blk(cl.reg_cache, blk_id);
-	}
-
 	return 0;
 }
 
