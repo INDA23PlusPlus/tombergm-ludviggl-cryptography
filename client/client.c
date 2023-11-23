@@ -338,7 +338,7 @@ int client_rd_blk(client_t *cl, blk_t *blk, blk_id_t id)
 		return -1;
 	}
 
-	ret = send(cl->sock_fd, &id, sizeof(id), MSG_MORE);
+	ret = send(cl->sock_fd, &id, sizeof(id), 0);
 	if (ret != sizeof(id))
 	{
 		perror("error: send");
