@@ -25,8 +25,8 @@ static int fs_getattr(const char *path, struct stat *stbuf)
     if (root == 0) return -EIO;
 
     res = fs_find_block(&cl, root, path, &id, &type);
-    if (res == FSERR_NOT_FOUND) return -ENOENT;
-    if (res == FSERR_IO) return -EIO;
+    if (res == -FSERR_NOT_FOUND) return -ENOENT;
+    if (res == -FSERR_IO) return -EIO;
 
     if (type == FS_DIR)
     {
@@ -56,9 +56,9 @@ static int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     if (root == 0) return -EIO;
 
     res = fs_find_block(&cl, root, path, &id, &type);
-    if (res == FSERR_NOT_FOUND) return -ENOENT;
-    if (res == FSERR_IO) return -EIO;
-    if (type == FS_FILE) return -ENOTDIR;
+    if (res == -FSERR_NOT_FOUND) return -ENOENT;
+    if (res == -FSERR_IO) return -EIO;
+    if (type == -FS_FILE) return -ENOTDIR;
 
     fs_dir_t *dir = cache_get_blk(cl.dir_cache, id);
     if (dir == 0) return -EIO;
@@ -107,12 +107,12 @@ static int fs_read(const char *path, char *buf, size_t size,
     if (root == 0) return -EIO;
 
     res = fs_find_block(&cl, root, path, &id, &type);
-    if (res == FSERR_NOT_FOUND) return -ENOENT;
-    if (res == FSERR_IO) return -EIO;
-    if (type == FS_DIR) return -EISDIR;
+    if (res == -FSERR_NOT_FOUND) return -ENOENT;
+    if (res == -FSERR_IO) return -EIO;
+    if (type == -FS_DIR) return -EISDIR;
 
     res = fs_read_file(&cl, id, buf, size, offset, &bread);
-    if (res == FSERR_IO) return -EIO;
+    if (res == -FSERR_IO) return -EIO;
 
     return bread; // bon appetit
 }
@@ -128,12 +128,12 @@ static int fs_write(const char *path, const char *buf, size_t size,
     if (root == 0) return -EIO;
 
     res = fs_find_block(&cl, root, path, &id, &type);
-    if (res == FSERR_NOT_FOUND) return -ENOENT;
-    if (res == FSERR_IO) return -EIO;
-    if (type == FS_DIR) return -EISDIR;
+    if (res == -FSERR_NOT_FOUND) return -ENOENT;
+    if (res == -FSERR_IO) return -EIO;
+    if (type == -FS_DIR) return -EISDIR;
 
     res = fs_write_file(&cl, id, buf, size, offset, &bwrit);
-    if (res == FSERR_IO) return -EIO;
+    if (res == -FSERR_IO) return -EIO;
 
     return bwrit;
 }
