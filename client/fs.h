@@ -5,11 +5,11 @@
 #include "cache.h"
 #include "blk.h"
 
+#include <time.h>
+
 #define BLOCK_SIZE      BLK_DATA_LEN
 #define NAME_MAX_LEN    16
 #define DIR_MAX_ENTRIES 128
-// The offset in to memory where the usable blocks reside
-#define BLOCK_OFFSET    4
 
 enum fs_block_type { FS_FILE, FS_DIR, };
 
@@ -49,6 +49,8 @@ typedef struct {
 typedef struct {
     unsigned parent;
     unsigned entry_id;
+    struct timespec acc;
+    struct timespec mod;
     unsigned size;
     unsigned blocks[];
 } fs_file_t;

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <fcntl.h>
+#include <time.h>
 #include <unistd.h>
 #include <fuse.h>
 #include <sodium.h>
@@ -44,6 +45,8 @@ static int fs_getattr(const char *path, struct stat *stbuf)
         stbuf->st_mode  = S_IFREG | 0777;
         stbuf->st_nlink = 1;
         stbuf->st_size  = f->size;
+        stbuf->st_mtim  = f->mod;
+        stbuf->st_atim  = f->acc;
     }
 
 	return 0;
@@ -218,6 +221,8 @@ static int fs_truncate(const char *path, off_t length)
     if (res == -FSERR_IO) return -EIO;
     if (res == -FSERR_OOM) return -ENOMEM;
 
+    client_flush_all(&cl);
+
 	return 0;
 }
 
@@ -264,13 +269,32 @@ static int fs_write(const char *path, const char *buf, size_t size,
     res = fs_write_file(&cl, id, buf, size, offset, &bwrit);
     if (res == -FSERR_IO) return -EIO;
 
+    client_flush_all(&cl);
+
     return bwrit;
 }
 
 int fs_utimens(const char *path, const struct timespec specs[2])
 {
-    (void)path;
-    (void)specs;
+
+    unsigned root, id, type;
+    int res;
+
+    root = fs_get_root(&cl);
+    if (root == 0) return -EIO;
+
+    res = fs_find_block(&cl, root, path, &id, &type);
+    if (res == -FSERR_NOT_FOUND) return -ENOENT;
+    if (res == -FSERR_IO) return -EIO;
+    if (type == -FS_DIR) return -EISDIR;
+
+    fs_file_t *file = cache_get_blk(cl.dir_cache, id);
+    if (file == NULL) return -EIO;
+
+    file->acc = specs[0];
+    file->mod = specs[1];
+
+    client_flush_all(&cl);
 
     return 0;
 }
