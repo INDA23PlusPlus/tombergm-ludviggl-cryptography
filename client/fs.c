@@ -366,11 +366,17 @@ int fs_write_file(client_t *cl, unsigned file, const char *buf, size_t size, siz
     return 0;
 }
 
-int fs_read_file(client_t *cl, unsigned file, char *buf, size_t size, size_t offset)
+int fs_read_file(client_t *cl, unsigned file, char *buf, size_t size, size_t offset, size_t *bytes_read)
 {
     unsigned block_id;
     unsigned char *block;
+    *bytes_read = 0;
     fs_file_t *file_ptr = verify_ptr(cache_get_blk(cl->dir_cache, file));
+
+    if (offset + size > file_ptr->size)
+    {
+        size = file_ptr->size - offset;
+    }
 
     unsigned fsbi = offset / BLOCK_SIZE;                // first sub-block id
     unsigned lsbi = (offset + size) / BLOCK_SIZE;       // last sub-block id
@@ -392,6 +398,7 @@ int fs_read_file(client_t *cl, unsigned file, char *buf, size_t size, size_t off
         block_id = file_ptr->blocks[fsbi];
         block = verify_ptr(cache_get_blk(cl->reg_cache, block_id));
         memcpy(buf, block + fpo, size);
+        *bytes_read = size;
         return 0;
     }
 
@@ -399,6 +406,7 @@ int fs_read_file(client_t *cl, unsigned file, char *buf, size_t size, size_t off
     block_id = file_ptr->blocks[fsbi];
     block = verify_ptr(cache_get_blk(cl->reg_cache, fsbi));
     memcpy(buf, block + fpo, BLOCK_SIZE - fpo);
+    *bytes_read += BLOCK_SIZE - fpo;
 
     // read intermediate blocks
     for (unsigned sbi = fsbi + 1, bo = BLOCK_SIZE - fpo; sbi < lsbi; sbi++, bo += BLOCK_SIZE)
@@ -406,6 +414,7 @@ int fs_read_file(client_t *cl, unsigned file, char *buf, size_t size, size_t off
         block_id = file_ptr->blocks[sbi];
         block = verify_ptr(cache_get_blk(cl->reg_cache, fsbi));
         memcpy(buf + bo, block, BLOCK_SIZE);
+        *bytes_read += BLOCK_SIZE;
     }
 
     // read last block
@@ -413,6 +422,7 @@ int fs_read_file(client_t *cl, unsigned file, char *buf, size_t size, size_t off
     block = verify_ptr(cache_get_blk(cl->reg_cache, fsbi));
     unsigned lsbo = BLOCK_SIZE * (lsbi - fsbi) - fpo;
     memcpy(buf + lsbo, block, lpo);
+    *bytes_read += lpo;
 
     return 0;
 }
