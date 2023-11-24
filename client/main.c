@@ -299,6 +299,46 @@ int fs_utimens(const char *path, const struct timespec specs[2])
     return 0;
 }
 
+static int fs_rmdir(const char *path)
+{
+    unsigned root, id, type;
+    int res;
+
+    root = fs_get_root(&cl);
+    if (root == 0) return -EIO;
+
+    res = fs_find_block(&cl, root, path, &id, &type);
+    if (res == -FSERR_NOT_FOUND) return -ENOENT;
+    if (res == -FSERR_IO) return -EIO;
+    if (type == -FS_FILE) return -ENOTDIR;
+
+    res = fs_delete_dir(&cl, id);
+
+    if (res == -FSERR_IO) return -EIO;
+
+    return 0;
+}
+
+static int fs_unlink(const char *path)
+{
+    unsigned root, id, type;
+    int res;
+
+    root = fs_get_root(&cl);
+    if (root == 0) return -EIO;
+
+    res = fs_find_block(&cl, root, path, &id, &type);
+    if (res == -FSERR_NOT_FOUND) return -ENOENT;
+    if (res == -FSERR_IO) return -EIO;
+    if (type == -FS_DIR) return -EISDIR;
+
+    res = fs_delete_file(&cl, id);
+
+    if (res == -FSERR_IO) return -EIO;
+
+    return 0;
+}
+
 static struct fuse_operations fs_ops =
 {
 	.getattr	= fs_getattr,
@@ -310,6 +350,8 @@ static struct fuse_operations fs_ops =
     .mkdir      = fs_mkdir,
     .create     = fs_create,
     .utimens    = fs_utimens,
+    .rmdir      = fs_rmdir,
+    .unlink     = fs_unlink,
 };
 
 int main(int argc, char *argv[])

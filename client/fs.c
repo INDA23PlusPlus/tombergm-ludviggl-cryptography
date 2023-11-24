@@ -149,7 +149,7 @@ int fs_find_block(client_t *cl, unsigned root, const char *path, unsigned *id, u
     return 0;
 }
 
-int fs_create_dir(client_t *cl, unsigned dir, const char *name, unsigned *id)
+int fs_create_dir(client_t *cl, unsigned parent, const char *name, unsigned *id)
 {
     fs_super_t *super_ptr = verify_ptr(cache_get_blk(cl->sb_cache, SUPER_ID));
 
@@ -158,7 +158,7 @@ int fs_create_dir(client_t *cl, unsigned dir, const char *name, unsigned *id)
     if (name_len > NAME_MAX_LEN) return -FSERR_LONG_NAME;
     if (super_ptr->free_count == 0) return -FSERR_OOM;
 
-    fs_dir_t *dir_ptr = verify_ptr(cache_get_blk(cl->dir_cache, dir));
+    fs_dir_t *dir_ptr = verify_ptr(cache_get_blk(cl->dir_cache, parent));
     if (dir_ptr->entry_count == DIR_MAX_ENTRIES) return -FSERR_FULL_DIR;
 
     for (unsigned i = 0; i <= dir_ptr->entry_count; i++)
@@ -172,7 +172,7 @@ int fs_create_dir(client_t *cl, unsigned dir, const char *name, unsigned *id)
             fs_dir_t *this_dir = verify_ptr(cache_claim_blk(cl->dir_cache, did));
 
             memset(this_dir, 0, sizeof*(this_dir));
-            this_dir->parent      = dir;
+            this_dir->parent      = parent;
             this_dir->entry_id    = i;
             this_dir->entry_count = 2;
 
@@ -185,7 +185,7 @@ int fs_create_dir(client_t *cl, unsigned dir, const char *name, unsigned *id)
             this_dir->entries[1].used = 1;
             this_dir->entries[1].type = FS_DIR;
             memcpy(this_dir->entries[1].name, "..", 3);
-            this_dir->entries[1].id = dir;
+            this_dir->entries[1].id = parent;
 
             entry->id   = did;
             entry->type = FS_DIR;
@@ -197,7 +197,7 @@ int fs_create_dir(client_t *cl, unsigned dir, const char *name, unsigned *id)
 
             *id = did;
             cache_dirty_blk(cl->dir_cache, did);
-            cache_dirty_blk(cl->dir_cache, dir);
+            cache_dirty_blk(cl->dir_cache, parent);
 
             return 0;
         }
@@ -274,7 +274,9 @@ int fs_delete_file(client_t *cl, unsigned id)
 int fs_delete_dir(client_t *cl, unsigned id)
 {
     fs_dir_t *dir = verify_ptr(cache_get_blk(cl->dir_cache, id));
-    for (int i = 0; i < DIR_MAX_ENTRIES; i++)
+
+    // start from 2 because '.' & '..'
+    for (int i = 2; i < DIR_MAX_ENTRIES; i++)
     {
         fs_dir_entry_t *entry = &dir->entries[i];
         if (entry->used)
@@ -292,7 +294,7 @@ int fs_delete_dir(client_t *cl, unsigned id)
             }
         }
     }
-    if (block_free(cl, id) != 0) return FSERR_IO;
+    if (block_free(cl, id) != 0) return -FSERR_IO;
 
     fs_dir_t *parent = verify_ptr(cache_get_blk(cl->dir_cache, dir->parent));
     parent->entries[dir->entry_id].used = 0;
