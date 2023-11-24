@@ -16,7 +16,6 @@
 
 static unsigned block_alloc(client_t *cl)
 {
-    // TODO: Make super parameter
     fs_super_t *super = verify_ptr(cache_get_blk(cl->sb_cache, SUPER_ID));
 
     unsigned map_count = super->map_count;
