@@ -60,7 +60,7 @@ static int verify_top(client_t *cl, char (*hash)[MTREE_HASH_LEN])
 	ret = memcmp(buf, hash, sizeof*(hash));
 	if (ret != 0)
 	{
-		errno = EIO;
+		errno = EBADMSG;
 		perror("error: memcmp");
 		return -1;
 	}
