@@ -5,6 +5,7 @@
 #include "err.h"
 
 #include <string.h>
+#include <time.h>
 
 #define SUPER_ID 0
 
@@ -79,6 +80,9 @@ int fs_init(client_t *cl, unsigned map_count)
 
     root->entry_count = 0;
     super->root = root_id;
+
+    timespec_get(&root->acc, TIME_UTC);
+    timespec_get(&root->mod, TIME_UTC);
 
     cache_dirty_blk(cl->sb_cache, SUPER_ID);
     cache_dirty_blk(cl->dir_cache, root_id);

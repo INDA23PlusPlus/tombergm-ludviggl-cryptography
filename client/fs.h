@@ -42,10 +42,13 @@ typedef struct {
 
 
 typedef struct {
-    unsigned       parent;
-    unsigned       entry_id;
-    unsigned       entry_count;
-    fs_dir_entry_t entries[];
+    unsigned          parent;
+    unsigned          entry_id;
+    struct timespec   acc;
+    struct timespec   mod;
+    struct timespec   crt;
+    unsigned          entry_count;
+    fs_dir_entry_t    entries[];
 } fs_dir_t;
 
 typedef struct {
@@ -53,6 +56,7 @@ typedef struct {
     unsigned          entry_id;
     struct timespec   acc;
     struct timespec   mod;
+    struct timespec   crt;
     unsigned          size;
     unsigned          block_count;
     unsigned          blocks[];

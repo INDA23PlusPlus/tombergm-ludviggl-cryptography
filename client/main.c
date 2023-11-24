@@ -32,8 +32,13 @@ static int fs_getattr(const char *path, struct stat *stbuf)
 
     if (type == FS_DIR)
     {
+        fs_dir_t *d = cache_get_blk(cl.dir_cache, id);
+        if (d == NULL) return -EIO;
+
         stbuf->st_mode  = S_IFDIR | 0755;
         stbuf->st_nlink = 2;
+        stbuf->st_mtim  = d->mod;
+        stbuf->st_atim  = d->acc;
     }
     else
     {
@@ -155,6 +160,19 @@ static int fs_mkdir(const char *path, mode_t mode)
     if (res == -FSERR_LONG_NAME) return -ENAMETOOLONG;
     if (res == -FSERR_OOM || res == -FSERR_FULL_DIR) return -ENOMEM;
 
+    fs_dir_t *dir = cache_get_blk(cl.dir_cache, id);
+    if (dir == NULL) return -EIO;
+
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    dir->acc = ts;
+    dir->mod = ts;
+
+    dir = cache_get_blk(cl.dir_cache, pid);
+    if (dir == NULL) return -EIO;
+    dir->acc = ts;
+    dir->mod = ts;
+
     return 0;
 }
 
@@ -191,6 +209,20 @@ static int fs_create(const char *path, mode_t mode, struct fuse_file_info *info)
     if (res == -FSERR_LONG_NAME) return -ENAMETOOLONG;
     if (res == -FSERR_OOM || res == -FSERR_FULL_DIR) return -ENOMEM;
 
+    fs_file_t *file= cache_get_blk(cl.dir_cache, id);
+    if (file == NULL) return -EIO;
+
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    file->acc = ts;
+    file->mod = ts;
+
+    fs_dir_t *dir = cache_get_blk(cl.dir_cache, pid);
+    if (dir == NULL) return -EIO;
+
+    dir->acc = ts;
+    dir->mod = ts;
+
     return 0;
 }
 
@@ -212,6 +244,12 @@ static int fs_truncate(const char *path, off_t length)
     res = fs_truncate_file(&cl, file_id, length);
     if (res == -FSERR_IO) return -EIO;
     if (res == -FSERR_OOM) return -ENOMEM;
+
+    fs_file_t *file= cache_get_blk(cl.dir_cache, file_id);
+    if (file == NULL) return -EIO;
+
+    timespec_get(&file->mod, TIME_UTC);
+    file->acc = file->mod;
 
 	return 0;
 }
@@ -236,6 +274,19 @@ static int fs_read(const char *path, char *buf, size_t size,
     res = fs_read_file(&cl, id, buf, size, offset, &bread);
     if (res == -FSERR_IO) return -EIO;
 
+    fs_file_t *file = cache_get_blk(cl.dir_cache, id);
+    if (file == NULL) return -EIO;
+
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    file->acc = ts;
+
+    unsigned pid = file->parent;
+    fs_dir_t *parent = cache_get_blk(cl.dir_cache, pid);
+    if (parent == NULL) return -EIO;
+
+    parent->acc = ts;
+
     return bread; // bon appetit
 }
 
@@ -258,6 +309,22 @@ static int fs_write(const char *path, const char *buf, size_t size,
 
     res = fs_write_file(&cl, id, buf, size, offset, &bwrit);
     if (res == -FSERR_IO) return -EIO;
+
+    fs_file_t *file = cache_get_blk(cl.dir_cache, id);
+    if (file == NULL) return -EIO;
+
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    file->acc = ts;
+    file->mod = ts;
+
+    unsigned pid = file->parent;
+
+    fs_dir_t *dir = cache_get_blk(cl.dir_cache, pid);
+    if (dir == NULL) return -EIO;
+
+    dir->acc = ts;
+    dir->mod = ts;
 
     return bwrit;
 }
@@ -283,6 +350,12 @@ int fs_utimens(const char *path, const struct timespec specs[2])
     file->acc = specs[0];
     file->mod = specs[1];
 
+    fs_dir_t *parent = cache_get_blk(cl.dir_cache, id);
+    if (parent == NULL) return -EIO;
+
+    parent->acc = specs[0];
+    parent->mod = specs[1];
+
     return 0;
 }
 
@@ -301,8 +374,19 @@ static int fs_rmdir(const char *path)
     if (res == -FSERR_IO) return -EIO;
     if (type == -FS_FILE) return -ENOTDIR;
 
-    res = fs_delete_dir(&cl, id);
+    fs_dir_t *dir = cache_get_blk(cl.dir_cache, id);
+    if (dir == NULL) return -EIO;
+    unsigned pid = dir->parent;
 
+    fs_dir_t *parent = cache_get_blk(cl.dir_cache, pid);
+    if (parent == NULL) return -EIO;
+
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    parent->mod = ts;
+    parent->acc = ts;
+
+    res = fs_delete_dir(&cl, id);
     if (res == -FSERR_IO) return -EIO;
 
     return 0;
@@ -323,8 +407,19 @@ static int fs_unlink(const char *path)
     if (res == -FSERR_IO) return -EIO;
     if (type == -FS_DIR) return -EISDIR;
 
-    res = fs_delete_file(&cl, id);
+    fs_file_t *file = cache_get_blk(cl.dir_cache, id);
+    if (file == NULL) return -EIO;
+    unsigned pid = file->parent;
 
+    fs_dir_t *parent = cache_get_blk(cl.dir_cache, pid);
+    if (parent == NULL) return -EIO;
+
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    parent->mod = ts;
+    parent->acc = ts;
+
+    res = fs_delete_file(&cl, id);
     if (res == -FSERR_IO) return -EIO;
 
     return 0;
