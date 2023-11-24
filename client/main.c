@@ -11,8 +11,8 @@
 #include <blk.h>
 #include "cache.h"
 #include "client.h"
-#include "fs.h"
 #include "err.h"
+#include "fs.h"
 
 static struct options
 {
@@ -457,12 +457,12 @@ static int fs_flush(const char *path, struct fuse_file_info *info)
 
 static struct fuse_operations fs_ops =
 {
-	.getattr	= fs_getattr,
-	.readdir	= fs_readdir,
-	.truncate	= fs_truncate,
-	.open		= fs_open,
-	.read		= fs_read,
-	.write		= fs_write,
+    .getattr    = fs_getattr,
+    .readdir    = fs_readdir,
+    .truncate   = fs_truncate,
+    .open       = fs_open,
+    .read       = fs_read,
+    .write      = fs_write,
     .mkdir      = fs_mkdir,
     .create     = fs_create,
     .utimens    = fs_utimens,
@@ -479,6 +479,16 @@ int main(int argc, char *argv[])
 	options.host = strdup("127.0.0.1");
 	options.root = strdup("./cl_root/");
 	options.pass = strdup("");
+
+	if (	options.host == NULL	||
+		options.root == NULL	||
+		options.pass == NULL	)
+	{
+		errno = ENOMEM;
+		perror("error: fuse_opt_insert_arg");
+		ret = EXIT_FAILURE;
+		goto exit;
+	}
 
 	ret = fuse_opt_parse(&args, &options, option_spec, NULL);
 	if (ret == -1)

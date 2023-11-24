@@ -9,8 +9,8 @@
 #include <blk.h>
 #include <cmd.h>
 #include <mtree.h>
-#include "server.h"
 #include "err.h"
+#include "server.h"
 
 static int send_mtree(server_t *sv, blk_id_t blk_id)
 {

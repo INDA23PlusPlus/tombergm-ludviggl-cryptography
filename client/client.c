@@ -13,9 +13,9 @@
 #include <cmd.h>
 #include "cache.h"
 #include "client.h"
-#include "mtree.h"
 #include "err.h"
 #include "fs.h"
+#include "mtree.h"
 
 static int update_top(client_t *cl, char (*hash)[MTREE_HASH_LEN])
 {

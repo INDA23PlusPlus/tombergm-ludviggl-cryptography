@@ -1,11 +1,9 @@
-
 #ifndef FS_H
 #define FS_H
 
-#include "cache.h"
-#include "blk.h"
-
 #include <time.h>
+#include "blk.h"
+#include "cache.h"
 
 #define BLOCK_SIZE      BLK_DATA_LEN
 #define NAME_MAX_LEN    16
