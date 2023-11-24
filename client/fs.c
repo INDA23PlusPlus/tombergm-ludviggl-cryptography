@@ -18,7 +18,6 @@
 
 static unsigned block_alloc(client_t *cl)
 {
-    // TODO: Make super parameter
     fs_super_t *super = verify_ptr(cache_get_blk(cl->sb_cache, SUPER_ID));
 
     unsigned map_count = super->map_count;
@@ -471,6 +470,8 @@ int fs_truncate_file(client_t *cl, unsigned id, unsigned size)
             block_id = block_alloc(cl);
             if (block_id == 0) return -FSERR_OOM;
             fptr->blocks[i] = block_id;
+            void *block = verify_ptr(cache_get_blk(cl->reg_cache, block_id));
+            memset(block, 0, BLOCK_SIZE);
         }
     }
     else

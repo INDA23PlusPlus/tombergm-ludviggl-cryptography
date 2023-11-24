@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <sodium.h>
 #include "server.h"
+#include "err.h"
 
 static server_t sv;
 
@@ -72,6 +73,8 @@ int main(int argc, char *argv[])
 		c_sock = accept(s_sock, (struct sockaddr *) &c_addr,
 				&c_addrlen);
 
+        log("client connected\n");
+
 		if (c_sock == -1)
 		{
 			perror("error: accept");
@@ -94,6 +97,8 @@ int main(int argc, char *argv[])
 			ret = EXIT_FAILURE;
 			goto exit;
 		}
+
+        log("client disconnected\n");
 
 		ret = server_stop(&sv);
 		if (ret != 0)
