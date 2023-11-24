@@ -14,7 +14,22 @@
 #include "fs.h"
 #include "err.h"
 
-#define BLK_MAX	16
+static struct options
+{
+	const char *host;
+	const char *root;
+	const char *pass;
+} options;
+
+#define OPTION(t, p) { t, offsetof(struct options, p), 1 }
+static const struct fuse_opt option_spec[] =
+{
+	OPTION("--host=%s", host),
+	OPTION("--root=%s", root),
+	OPTION("--pass=%s", pass),
+	FUSE_OPT_END
+};
+#undef OPTION
 
 static client_t cl;
 
@@ -458,20 +473,42 @@ static struct fuse_operations fs_ops =
 
 int main(int argc, char *argv[])
 {
-	int ret = EXIT_SUCCESS;
+	int			ret	= EXIT_SUCCESS;
+	struct fuse_args	args	= FUSE_ARGS_INIT(argc, argv);
 
-	ret = client_start(&cl, "./cl_root/", "password123");
+	options.host = strdup("127.0.0.1");
+	options.root = strdup("./cl_root/");
+	options.pass = strdup("");
+
+	ret = fuse_opt_parse(&args, &options, option_spec, NULL);
+	if (ret == -1)
+	{
+		ret = EXIT_FAILURE;
+		goto exit;
+	}
+
+	ret = fuse_opt_add_arg(&args, "-s");
+	if (ret != 0)
+	{
+		errno = ENOMEM;
+		perror("error: fuse_opt_insert_arg");
+		ret = EXIT_FAILURE;
+		goto exit;
+	}
+
+	ret = client_start(&cl, options.host, options.root, options.pass);
 	if (ret != 0)
 	{
 		ret = EXIT_FAILURE;
 		goto exit;
 	}
 
-	ret = fuse_main(argc, argv, &fs_ops, NULL);
+	ret = fuse_main(args.argc, args.argv, &fs_ops, NULL);
 
 	client_stop(&cl);
 
 exit:
+	fuse_opt_free_args(&args);
 
 	return ret;
 }

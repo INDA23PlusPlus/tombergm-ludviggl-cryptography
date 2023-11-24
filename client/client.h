@@ -19,7 +19,8 @@ typedef struct client
 	cache_t *		reg_cache;
 } client_t;
 
-int	client_start	(client_t *cl, const char *root_path, const char *pw);
+int	client_start	(client_t *cl, const char *host,
+			const char *root_path, const char *pw);
 int	client_stop	(client_t *cl);
 int	client_rd_blk	(client_t *cl, blk_t *blk, blk_id_t id);
 int	client_wr_blk	(client_t *cl, blk_t *blk, blk_id_t id);

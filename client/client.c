@@ -211,12 +211,12 @@ exit:
 	return ret;
 }
 
-int client_start(client_t *cl, const char *root_path, const char *pw)
+int client_start(client_t *cl, const char *host, const char *root_path,
+		const char *pw)
 {
 	int			ret		= 0;
 	struct protoent *	tcp		= NULL;
-	struct sockaddr_in	addr;
-	socklen_t		addrlen;
+	struct addrinfo *	addrinfo	= NULL;
 
 	client_reset(cl);
 
@@ -243,12 +243,16 @@ int client_start(client_t *cl, const char *root_path, const char *pw)
 		goto exit;
 	}
 
-	addr.sin_family = AF_INET;
-	addr.sin_port = htons(1311);
-	inet_aton("127.0.0.1", &addr.sin_addr);
-	addrlen = sizeof(addr);
+	ret = getaddrinfo(host, "1311", NULL, &addrinfo);
+	if (ret != 0)
+	{
+		fprintf(stderr, "error: hostname lookup failed\n");
+		goto exit;
+	}
 
-	ret = connect(cl->sock_fd, (struct sockaddr *) &addr, addrlen);
+	ret = connect(cl->sock_fd, addrinfo->ai_addr, addrinfo->ai_addrlen);
+	freeaddrinfo(addrinfo);
+
 	if (ret != 0)
 	{
 		perror("error: connect");

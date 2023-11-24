@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/socket.h>
@@ -18,6 +19,32 @@ int main(int argc, char *argv[])
 	int			s_sock		= -1;
 	struct sockaddr_in	s_addr;
 	socklen_t		s_addrlen;
+	const char *		root_path	= "./sv_root/";
+
+	if (argc == 1)
+	{
+	}
+	else if (argc == 2)
+	{
+		if (strncmp(argv[1], "--root=", 7) == 0)
+		{
+			root_path = &argv[1][7];
+		}
+		else
+		{
+			fprintf(stderr, "error: invalid argument: %s\n",
+				argv[1]);
+			ret = EXIT_FAILURE;
+			goto exit;
+		}
+	}
+	else
+	{
+		fprintf(stderr, "error: invalid argument: %s\n", argv[1]);
+		ret = EXIT_FAILURE;
+		goto exit;
+
+	}
 
 	if (sodium_init() < 0)
 	{
@@ -82,7 +109,7 @@ int main(int argc, char *argv[])
 			goto exit;
 		}
 
-		ret = server_start(&sv, c_sock, "./sv_root/");
+		ret = server_start(&sv, c_sock, root_path);
 		if (ret != 0)
 		{
 			close(c_sock);
