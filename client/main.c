@@ -20,8 +20,6 @@ static client_t cl;
 
 static int fs_getattr(const char *path, struct stat *stbuf)
 {
-    log("%s, path=%s\n", __func__, path);
-
     unsigned root, id, type;
     int res;
 
@@ -55,8 +53,6 @@ static int fs_getattr(const char *path, struct stat *stbuf)
 static int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			off_t offset, struct fuse_file_info *fi)
 {
-    log("%s, path=%s\n", __func__, path);
-
     unsigned root, id, type;
     int res;
 
