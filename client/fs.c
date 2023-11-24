@@ -444,6 +444,42 @@ int fs_read_file(client_t *cl, unsigned file, char *buf, size_t size, size_t off
 
 int fs_truncate_file(client_t *cl, unsigned id, unsigned size)
 {
+    fs_file_t *fptr = verify_ptr(cache_get_blk(cl->dir_cache, id));
+
+    unsigned new_block_count;
+    unsigned block_id;
+
+    if (size % BLOCK_SIZE == 0)
+    {
+        new_block_count = size / BLOCK_SIZE;
+    }
+    else
+    {
+        new_block_count = size / BLOCK_SIZE + 1;
+    }
+
+    if (fptr->block_count < new_block_count)
+    {
+        for (unsigned i = fptr->block_count; i < new_block_count; i++)
+        {
+            block_id = block_alloc(cl);
+            if (block_id == 0) return -FSERR_OOM;
+            fptr->blocks[i] = block_id;
+        }
+    }
+    else
+    if (fptr->block_count > new_block_count)
+    {
+        for (unsigned i = new_block_count; i < fptr->block_count; i++)
+        {
+            unsigned ret = block_free(cl, fptr->blocks[i]);
+            if (ret != 0) return ret;
+        }
+    }
+
+    fptr->size = size;
+    fptr->block_count = new_block_count;
+
     return 0;
 }
 
