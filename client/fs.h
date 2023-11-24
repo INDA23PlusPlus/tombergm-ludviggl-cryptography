@@ -9,7 +9,9 @@
 
 #define BLOCK_SIZE      BLK_DATA_LEN
 #define NAME_MAX_LEN    16
-#define DIR_MAX_ENTRIES 128
+#define DIR_MAX_ENTRIES ((BLOCK_SIZE - sizeof(fs_dir_t)) / sizeof(fs_dir_entry_t))
+#define FILE_MAX_BLOCKS ((BLOCK_SIZE - sizeof(fs_file_t)) / sizeof(unsigned))
+#define FILE_MAX_SIZE   (BLOCK_SIZE * FILE_MAX_BLOCKS)
 
 enum fs_block_type { FS_FILE, FS_DIR, };
 
@@ -47,12 +49,13 @@ typedef struct {
 } fs_dir_t;
 
 typedef struct {
-    unsigned parent;
-    unsigned entry_id;
-    struct timespec acc;
-    struct timespec mod;
-    unsigned size;
-    unsigned blocks[];
+    unsigned          parent;
+    unsigned          entry_id;
+    struct timespec   acc;
+    struct timespec   mod;
+    unsigned          size;
+    unsigned          block_count;
+    unsigned          blocks[];
 } fs_file_t;
 
 int fs_init(client_t *cl, unsigned max_blocks);

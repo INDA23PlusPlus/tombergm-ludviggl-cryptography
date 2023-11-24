@@ -2,12 +2,11 @@
 #include "fs.h"
 #include "cache.h"
 #include "client.h"
+#include "err.h"
 
 #include <string.h>
 
 #define SUPER_ID 0
-
-#define get_block(id) 0
 
 #define verify_ptr(ptr)\
     ({\
@@ -229,9 +228,10 @@ int fs_create_file(client_t *cl, unsigned dir, const char *name, unsigned *id)
 
             fs_file_t *file = verify_ptr(cache_claim_blk(cl->dir_cache, fid));
 
-            file->size     = 0;
-            file->parent   = dir;
-            file->entry_id = i;
+            file->size        = 0;
+            file->block_count = 0;
+            file->parent      = dir;
+            file->entry_id    = i;
 
             entry->id = fid;
             entry->type = FS_FILE;
@@ -254,9 +254,8 @@ int fs_create_file(client_t *cl, unsigned dir, const char *name, unsigned *id)
 int fs_delete_file(client_t *cl, unsigned id)
 {
     fs_file_t *file_ptr = verify_ptr(cache_get_blk(cl->dir_cache, id));
-    unsigned block_count = file_ptr->size / BLOCK_SIZE;
 
-    for (unsigned i = 0; i < block_count; i++)
+    for (unsigned i = 0; i < file_ptr->block_count; i++)
     {
         if (block_free(cl, file_ptr->blocks[id]) != 0) return FSERR_IO;
     }
@@ -306,182 +305,145 @@ int fs_delete_dir(client_t *cl, unsigned id)
 
 int fs_write_file(client_t *cl, unsigned file, const char *buf, size_t size, size_t offset, size_t *bytes_written)
 {
-    unsigned block_id;
     unsigned char *block;
+    unsigned block_id;
+
+    fs_file_t *fptr = verify_ptr(cache_get_blk(cl->dir_cache, file));
     *bytes_written = 0;
-    fs_file_t *file_ptr = verify_ptr(cache_get_blk(cl->dir_cache, file));
 
-    unsigned fsbi = offset / BLOCK_SIZE;                // first sub-block id
-    unsigned lsbi = (offset + size) / BLOCK_SIZE;       // last sub-block id
+    if (size == 0) return 0;
 
-    unsigned fpo  = offset - fsbi * BLOCK_SIZE;         // first positions offset
-                                                        //  inside first sub-block
-    unsigned lpo  = offset + size - lsbi * BLOCK_SIZE;  // last positions offset
-                                                        //  inside first sub-block
-    unsigned bc   = file_ptr->size / BLOCK_SIZE;        // number of allocated blocks in file
-    unsigned ns   = offset + size;                      // new size
-    if (ns < file_ptr->size) ns = file_ptr->size;
-    unsigned rbc  = ns / BLOCK_SIZE;                    // required allocated blocks
+    cache_dirty_blk(cl->dir_cache, file);
 
-    // allocate new blocks
-    for (unsigned b = bc; b < rbc; b++)
+    unsigned stop_pos     = size + offset;
+    unsigned start_offset = offset % BLOCK_SIZE;
+    unsigned first_block  = offset / BLOCK_SIZE;
+    unsigned stop_offset;
+    unsigned last_block;
+
+    if (stop_pos % BLOCK_SIZE == 0)
     {
-        // TODO: Write what we can before failing to allocate?
-        unsigned id = block_alloc(cl);
-        if (id == 0) return -FSERR_OOM;
-        file_ptr->blocks[b] = id;
+        stop_offset = BLOCK_SIZE;
+        last_block  = stop_pos / BLOCK_SIZE - 1;
     }
-    file_ptr->size = ns;
-
-    // buffer fits in a single block
-    if (fsbi == lsbi)
+    else
     {
-        block_id = file_ptr->blocks[fsbi];
+        stop_offset = stop_pos % BLOCK_SIZE;
+        last_block  = stop_pos / BLOCK_SIZE;
+    }
+
+    if (last_block >= fptr->block_count)
+    {
+        for (unsigned i = fptr->block_count; i <= last_block; i++)
+        {
+            block_id = block_alloc(cl);
+            if (block_id == 0) return -FSERR_OOM;
+            fptr->blocks[i] = block_id;
+            fptr->block_count++;
+        }
+    }
+
+    if (first_block == last_block)
+    {
+        block_id = fptr->blocks[first_block];
         block = verify_ptr(cache_get_blk(cl->reg_cache, block_id));
-        memcpy(block + fpo, buf, size);
+        memcpy(block + start_offset, buf + *bytes_written, stop_offset - start_offset);
         cache_dirty_blk(cl->reg_cache, block_id);
-        *bytes_written = size;
+        *bytes_written += stop_offset - start_offset;
+        if (offset + *bytes_written > fptr->size) fptr->size = offset + *bytes_written;
         return 0;
     }
 
-    // write first block
-    block_id = file_ptr->blocks[fsbi];
-    block = verify_ptr(cache_get_blk(cl->reg_cache, fsbi));
-    memcpy(block + fpo, buf, BLOCK_SIZE - fpo);
+    block_id = fptr->blocks[first_block];
+    block = verify_ptr(cache_get_blk(cl->reg_cache, block_id));
+    memcpy(block + start_offset, buf + *bytes_written, BLOCK_SIZE - start_offset);
     cache_dirty_blk(cl->reg_cache, block_id);
-    *bytes_written += BLOCK_SIZE - fpo;
+    *bytes_written += BLOCK_SIZE - start_offset;
+    if (offset + *bytes_written > fptr->size) fptr->size = offset + *bytes_written;
 
-    // write intermediate blocks
-    for (unsigned sbi = fsbi + 1, bo = BLOCK_SIZE - fpo; sbi < lsbi; sbi++, bo += BLOCK_SIZE)
+    for (unsigned i = first_block + 1; i < last_block; i++)
     {
-        block_id = file_ptr->blocks[sbi];
-        block = verify_ptr(cache_claim_blk(cl->reg_cache, fsbi));
-        memcpy(block, buf + bo, BLOCK_SIZE);
+        block_id = fptr->blocks[i];
+        block = verify_ptr(cache_get_blk(cl->reg_cache, block_id));
+        memcpy(block, buf + *bytes_written, BLOCK_SIZE);
         cache_dirty_blk(cl->reg_cache, block_id);
         *bytes_written += BLOCK_SIZE;
+        if (offset + *bytes_written > fptr->size) fptr->size = offset + *bytes_written;
     }
 
-    // write last block
-    block_id = file_ptr->blocks[lsbi];
-    block = verify_ptr(cache_get_blk(cl->reg_cache, fsbi));
-    unsigned lsbo = BLOCK_SIZE * (lsbi - fsbi) - fpo;
-    memcpy(block, buf + lsbo, lpo);
+    block_id = fptr->blocks[last_block];
+    block = verify_ptr(cache_get_blk(cl->reg_cache, block_id));
+    memcpy(block, buf + *bytes_written, stop_offset);
     cache_dirty_blk(cl->reg_cache, block_id);
-    *bytes_written += lpo;
+    *bytes_written += stop_offset;
+    if (offset + *bytes_written > fptr->size) fptr->size = offset + *bytes_written;
 
     return 0;
 }
 
 int fs_read_file(client_t *cl, unsigned file, char *buf, size_t size, size_t offset, size_t *bytes_read)
 {
-    unsigned block_id;
     unsigned char *block;
-    *bytes_read = 0;
-    fs_file_t *file_ptr = verify_ptr(cache_get_blk(cl->dir_cache, file));
+    unsigned block_id;
 
-    if (offset + size > file_ptr->size)
+    fs_file_t *fptr = verify_ptr(cache_get_blk(cl->dir_cache, file));
+    *bytes_read = 0;
+
+    if (size == 0) return 0;
+    if (offset >= fptr->size) return 0;
+
+    unsigned stop_pos     = size + offset;
+    if (stop_pos > fptr->size) stop_pos = fptr->size;
+    unsigned start_offset = offset % BLOCK_SIZE;
+    unsigned first_block  = offset / BLOCK_SIZE;
+    unsigned stop_offset;
+    unsigned last_block;
+
+    if (stop_pos % BLOCK_SIZE == 0)
     {
-        size = file_ptr->size - offset;
+        stop_offset = BLOCK_SIZE;
+        last_block  = stop_pos / BLOCK_SIZE - 1;
+    }
+    else
+    {
+        stop_offset = stop_pos % BLOCK_SIZE;
+        last_block  = stop_pos / BLOCK_SIZE;
     }
 
-    unsigned fsbi = offset / BLOCK_SIZE;                // first sub-block id
-    unsigned lsbi = (offset + size) / BLOCK_SIZE;       // last sub-block id
+    if (first_block >= fptr->block_count) return 0;
 
-    unsigned fpo  = offset - fsbi * BLOCK_SIZE;         // first positions offset
-                                                        //  inside first sub-block
-    unsigned lpo  = offset + size - lsbi * BLOCK_SIZE;  // last positions offset
-                                                        //  inside first sub-block
-    unsigned bc   = file_ptr->size / BLOCK_SIZE;        // number of allocated blocks in file
-    unsigned ns   = offset + size;                      // new size
-    if (ns < file_ptr->size) ns = file_ptr->size;
-    unsigned rbc  = ns / BLOCK_SIZE;                    // required blocks
-
-    if (bc != rbc) return -FSERR_OVERFLOW;
-
-    // buffer fits in a single block
-    if (fsbi == lsbi)
+    if (first_block == last_block)
     {
-        block_id = file_ptr->blocks[fsbi];
+        block_id = fptr->blocks[first_block];
         block = verify_ptr(cache_get_blk(cl->reg_cache, block_id));
-        memcpy(buf, block + fpo, size);
-        *bytes_read = size;
+        memcpy(buf + *bytes_read, block + start_offset, stop_offset - start_offset);
+        *bytes_read += stop_offset - start_offset;
         return 0;
     }
 
-    // read first block
-    block_id = file_ptr->blocks[fsbi];
-    block = verify_ptr(cache_get_blk(cl->reg_cache, fsbi));
-    memcpy(buf, block + fpo, BLOCK_SIZE - fpo);
-    *bytes_read += BLOCK_SIZE - fpo;
+    block_id = fptr->blocks[first_block];
+    block = verify_ptr(cache_get_blk(cl->reg_cache, block_id));
+    memcpy(buf + *bytes_read, block + start_offset, BLOCK_SIZE - start_offset);
+    *bytes_read += BLOCK_SIZE - start_offset;
 
-    // read intermediate blocks
-    for (unsigned sbi = fsbi + 1, bo = BLOCK_SIZE - fpo; sbi < lsbi; sbi++, bo += BLOCK_SIZE)
+    for (unsigned i = first_block + 1; i < last_block; i++)
     {
-        block_id = file_ptr->blocks[sbi];
-        block = verify_ptr(cache_get_blk(cl->reg_cache, fsbi));
-        memcpy(buf + bo, block, BLOCK_SIZE);
+        block_id = fptr->blocks[i];
+        block = verify_ptr(cache_get_blk(cl->reg_cache, block_id));
+        memcpy(buf + *bytes_read, block, BLOCK_SIZE);
         *bytes_read += BLOCK_SIZE;
     }
 
-    // read last block
-    block_id = file_ptr->blocks[lsbi];
-    block = verify_ptr(cache_get_blk(cl->reg_cache, fsbi));
-    unsigned lsbo = BLOCK_SIZE * (lsbi - fsbi) - fpo;
-    memcpy(buf + lsbo, block, lpo);
-    *bytes_read += lpo;
+    block_id = fptr->blocks[last_block];
+    block = verify_ptr(cache_get_blk(cl->reg_cache, block_id));
+    memcpy(buf + *bytes_read, block, stop_offset);
+    *bytes_read += stop_offset;
 
     return 0;
 }
 
 int fs_truncate_file(client_t *cl, unsigned id, unsigned size)
 {
-    int ret = 0;
-    fs_file_t *file = verify_ptr(cache_get_blk(cl->dir_cache, id));
-
-    unsigned bc  = file->size / BLOCK_SIZE + 1;
-    unsigned nbc = size / BLOCK_SIZE + 1;
-
-    if (file->size > size)
-    {
-        for (int i = nbc; i < bc; i++)
-        {
-            unsigned sbi = file->blocks[i];
-            ret = block_free(cl, sbi);
-            if (ret < 0) return ret;
-        }
-    }
-    else
-    if (file->size < size)
-    {
-        unsigned eo  = file->size % BLOCK_SIZE;
-        unsigned neo = size % BLOCK_SIZE;
-
-        unsigned block_id = file->blocks[bc - 1];
-        void *block = verify_ptr(cache_get_blk(cl->reg_cache, block_id));
-
-        if (bc == nbc)
-        {
-            memset(block + eo, 0, neo - eo);
-            cache_dirty_blk(cl->reg_cache, block_id);
-        }
-        else
-        {
-            memset(block + eo, 0, BLOCK_SIZE - eo);
-            cache_dirty_blk(cl->reg_cache, block_id);
-
-            for (unsigned i = bc; i < nbc; i++)
-            {
-                block_id = block_alloc(cl);
-                if (block_id == 0) return -FSERR_OOM;
-
-                block = verify_ptr(cache_get_blk(cl->reg_cache, block_id));
-                file->blocks[i] = block_id;
-                memset(block, 0, BLOCK_SIZE);
-                cache_dirty_blk(cl->reg_cache, block_id);
-            }
-        }
-    }
-
     return 0;
 }
 

@@ -303,7 +303,7 @@ static struct fuse_operations fs_ops =
 {
 	.getattr	= fs_getattr,
 	.readdir	= fs_readdir,
-	.truncate	= fs_truncate,
+	//.truncate	= fs_truncate,
 	.open		= fs_open,
 	.read		= fs_read,
 	.write		= fs_write,
