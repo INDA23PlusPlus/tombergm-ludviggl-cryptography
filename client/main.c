@@ -159,8 +159,6 @@ static int fs_mkdir(const char *path, mode_t mode)
     if (res == -FSERR_LONG_NAME) return -ENAMETOOLONG;
     if (res == -FSERR_OOM || res == -FSERR_FULL_DIR) return -ENOMEM;
 
-    client_flush_all(&cl);
-
     return 0;
 }
 
@@ -197,8 +195,6 @@ static int fs_create(const char *path, mode_t mode, struct fuse_file_info *info)
     if (res == -FSERR_LONG_NAME) return -ENAMETOOLONG;
     if (res == -FSERR_OOM || res == -FSERR_FULL_DIR) return -ENOMEM;
 
-    client_flush_all(&cl);
-
     return 0;
 }
 
@@ -220,8 +216,6 @@ static int fs_truncate(const char *path, off_t length)
     res = fs_truncate_file(&cl, file_id, length);
     if (res == -FSERR_IO) return -EIO;
     if (res == -FSERR_OOM) return -ENOMEM;
-
-    client_flush_all(&cl);
 
 	return 0;
 }
@@ -269,13 +263,12 @@ static int fs_write(const char *path, const char *buf, size_t size,
     res = fs_write_file(&cl, id, buf, size, offset, &bwrit);
     if (res == -FSERR_IO) return -EIO;
 
-    client_flush_all(&cl);
-
     return bwrit;
 }
 
 int fs_utimens(const char *path, const struct timespec specs[2])
 {
+    log("%s, path=%s\n", __func__, path);
 
     unsigned root, id, type;
     int res;
@@ -294,13 +287,13 @@ int fs_utimens(const char *path, const struct timespec specs[2])
     file->acc = specs[0];
     file->mod = specs[1];
 
-    client_flush_all(&cl);
-
     return 0;
 }
 
 static int fs_rmdir(const char *path)
 {
+    log("%s, path=%s\n", __func__, path);
+
     unsigned root, id, type;
     int res;
 
@@ -321,6 +314,8 @@ static int fs_rmdir(const char *path)
 
 static int fs_unlink(const char *path)
 {
+    log("%s, path=%s\n", __func__, path);
+
     unsigned root, id, type;
     int res;
 
@@ -339,6 +334,21 @@ static int fs_unlink(const char *path)
     return 0;
 }
 
+static int fs_flush(const char *path, struct fuse_file_info *info)
+{
+    log("%s, path=%s\n", __func__, path);
+
+    // just flush everything
+    (void)path;
+    (void)info;
+    unsigned res;
+
+    res = client_flush_all(&cl);
+    if (res != 0) return -EIO;
+
+    return 0;
+}
+
 static struct fuse_operations fs_ops =
 {
 	.getattr	= fs_getattr,
@@ -352,6 +362,7 @@ static struct fuse_operations fs_ops =
     .utimens    = fs_utimens,
     .rmdir      = fs_rmdir,
     .unlink     = fs_unlink,
+    .flush      = fs_flush,
 };
 
 int main(int argc, char *argv[])
