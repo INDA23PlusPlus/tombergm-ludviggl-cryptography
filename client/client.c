@@ -83,7 +83,8 @@ static int compute_top(client_t *cl, blk_t *blk, blk_id_t blk_id,
 		char	pair[2][MTREE_HASH_LEN];
 		int	node_par = (node_id ^ 1) & 1;
 
-		ret = recv(cl->sock_fd, pair[node_par ^ 1], sizeof*(pair), 0);
+		ret = recv(cl->sock_fd, pair[node_par ^ 1], sizeof*(pair),
+				MSG_WAITALL);
 
 		if (ret != sizeof*(pair))
 		{
@@ -179,7 +180,7 @@ static int client_new_sys(client_t *cl)
 		goto exit;
 	}
 
-	ret = recv(cl->sock_fd, &hash, sizeof(hash), 0);
+	ret = recv(cl->sock_fd, &hash, sizeof(hash), MSG_WAITALL);
 	if (ret != sizeof(hash))
 	{
 		perror("error: recv");
