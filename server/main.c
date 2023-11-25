@@ -12,6 +12,20 @@
 
 static server_t sv;
 
+static void usage(const char *name)
+{
+    fprintf(stdout,
+            "Usage:\n"
+            "    %s [options]\n"
+            "Options:\n"
+            "    --root=<dir>    Use directory <dir> for local files (default: ./sv_root/).\n"
+            "    --help          Display this help message.\n"
+            "\n",
+            name);
+
+    exit(EXIT_SUCCESS);
+}
+
 int main(int argc, char *argv[])
 {
 	int			ret		= EXIT_SUCCESS;
@@ -20,6 +34,8 @@ int main(int argc, char *argv[])
 	struct sockaddr_in	s_addr;
 	socklen_t		s_addrlen;
 	const char *		root_path	= "./sv_root/";
+
+    if (argc == 2 && strcmp(argv[1], "--help") == 0) usage(argv[0]);
 
 	for (int i = 1; i < argc; i++)
 	{

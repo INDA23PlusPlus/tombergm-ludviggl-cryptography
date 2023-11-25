@@ -32,6 +32,22 @@ static const struct fuse_opt option_spec[] =
 };
 #undef OPTION
 
+static void usage(const char *name)
+{
+    fprintf(stdout,
+            "Usage:\n"
+            "    %s [options] <mount point>\n"
+            "Options:\n"
+            "    --host=<addr>      Connect to server at address <addr> (default: 127.0.0.1).\n"
+            "    --root=<dir>       Use directory <dir> for local files (default: ./cl_root/).\n"
+            "    --pass=<password>  Choose / specify password (default: empty string).\n"
+            "    --help             Display this help message.\n"
+            "\n",
+            name);
+
+    exit(EXIT_SUCCESS);
+}
+
 static client_t cl;
 
 static int fs_getattr(const char *path, struct stat *stbuf)
@@ -474,6 +490,9 @@ static struct fuse_operations fs_ops =
 
 int main(int argc, char *argv[])
 {
+    if (argc == 1) usage(argv[0]);
+    if (argc == 2 && strcmp(argv[1], "--help") == 0) usage(argv[0]);
+
 	int			ret	= EXIT_SUCCESS;
 	struct fuse_args	args	= FUSE_ARGS_INIT(argc, argv);
 
