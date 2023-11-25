@@ -88,7 +88,7 @@ static int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     fs_dir_t *dir = cache_get_blk(cl.dir_cache, id);
     if (dir == 0) return -EIO;
 
-    for (unsigned i = 0; i < dir->entry_count; i++)
+    for (unsigned i = 0; i < DIR_MAX_ENTRIES; i++)
     {
         fs_dir_entry_t *entry = &dir->entries[i];
         if (entry->used)

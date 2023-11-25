@@ -124,7 +124,7 @@ int fs_find_block(client_t *cl, unsigned root, const char *path, unsigned *id, u
         unsigned name_len = path - begin;
         int matched = 0;
 
-        for (unsigned i = 0; i < dir->entry_count; i++)
+        for (unsigned i = 0; i < DIR_MAX_ENTRIES; i++)
         {
             fs_dir_entry_t *entry = &dir->entries[i];
 
