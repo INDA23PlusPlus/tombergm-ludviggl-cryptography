@@ -9,10 +9,11 @@
 #define MTREE_DEPTH     8
 
 typedef uint64_t	node_id_t;
+typedef char		hash_t[MTREE_HASH_LEN];
 
 typedef struct
 {
-	char		hash[MTREE_HASH_LEN];
+	hash_t		hash;
 } mtree_node_t;
 
 typedef struct

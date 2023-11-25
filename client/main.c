@@ -9,9 +9,10 @@
 #include <fuse.h>
 #include <sodium.h>
 #include <blk.h>
+#include <err.h>
+#include <mtree.h>
 #include "cache.h"
 #include "client.h"
-#include "err.h"
 #include "fs.h"
 
 static struct options
@@ -476,48 +477,30 @@ int main(int argc, char *argv[])
 	int			ret	= EXIT_SUCCESS;
 	struct fuse_args	args	= FUSE_ARGS_INIT(argc, argv);
 
-	options.host = strdup("127.0.0.1");
-	options.root = strdup("./cl_root/");
-	options.pass = strdup("");
+	options.host = try_ptr(ENOMEM, strdup, "127.0.0.1");
+	options.root = try_ptr(ENOMEM, strdup, "./cl_root/");
+	options.pass = try_ptr(ENOMEM, strdup, "");
 
-	if (	options.host == NULL	||
-		options.root == NULL	||
-		options.pass == NULL	)
-	{
-		errno = ENOMEM;
-		perror("error: fuse_opt_insert_arg");
-		ret = EXIT_FAILURE;
-		goto exit;
-	}
+	try_fn(0, fuse_opt_parse, &args, &options, option_spec, NULL);
+	try_fn(ENOMEM, fuse_opt_add_arg, &args, "-s");
 
-	ret = fuse_opt_parse(&args, &options, option_spec, NULL);
-	if (ret == -1)
-	{
-		ret = EXIT_FAILURE;
-		goto exit;
-	}
+	try_fn(0, client_start, &cl, options.host, options.root, options.pass);
+	try_fn(0, client_flush_all, &cl);
 
-	ret = fuse_opt_add_arg(&args, "-s");
-	if (ret != 0)
-	{
-		errno = ENOMEM;
-		perror("error: fuse_opt_insert_arg");
-		ret = EXIT_FAILURE;
-		goto exit;
-	}
-
-	ret = client_start(&cl, options.host, options.root, options.pass);
-	if (ret != 0)
-	{
-		ret = EXIT_FAILURE;
-		goto exit;
-	}
+	log("client started\n");
 
 	ret = fuse_main(args.argc, args.argv, &fs_ops, NULL);
 
 	client_stop(&cl);
 
+	log("client stopped\n");
+
 exit:
+	if (ret != EXIT_SUCCESS)
+	{
+		ret = EXIT_FAILURE;
+	}
+
 	fuse_opt_free_args(&args);
 
 	return ret;

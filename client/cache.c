@@ -45,12 +45,11 @@ static void cblk_init(cblk_t *cblk)
 
 static int cblk_flush(cblk_t *cblk, client_t *cl)
 {
-	int ret = 0;
+	int	ret	= 0;
+	blk_t	blk;
 
 	if (cblk_valid(cblk) && cblk_dirty(cblk))
 	{
-		blk_t blk;
-
 		memcpy(blk.data, cblk->data, sizeof(cblk->data));
 
 		ret = client_wr_blk(cl, &blk, cblk->id);
@@ -66,14 +65,13 @@ static int cblk_flush(cblk_t *cblk, client_t *cl)
 
 static int cblk_fetch(cblk_t *cblk, blk_id_t id, client_t *cl)
 {
-	int ret = cblk_flush(cblk, cl);
+	int	ret	= cblk_flush(cblk, cl);
+	blk_t	blk;
 
 	if (ret != 0)
 	{
 		return ret;
 	}
-
-	blk_t blk;
 
 	ret = client_rd_blk(cl, &blk, id);
 
@@ -124,9 +122,7 @@ static cblk_t *cache_find_ptr(cache_t *cache, void *ptr)
 
 cache_t *cache_new(client_t *cl, int n_blk)
 {
-	size_t size = sizeof(cache_t) + sizeof(cblk_t) * n_blk;
-
-	cache_t *cache = malloc(size);
+	cache_t *cache = malloc(sizeof(cache_t) + sizeof(cblk_t) * n_blk);
 
 	if (cache != NULL)
 	{
