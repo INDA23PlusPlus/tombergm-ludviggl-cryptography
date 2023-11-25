@@ -8,8 +8,8 @@
 #include <unistd.h>
 #include <blk.h>
 #include <cmd.h>
+#include <err.h>
 #include <mtree.h>
-#include "err.h"
 #include "server.h"
 
 static int send_mtree(server_t *sv, blk_id_t blk_id)
@@ -27,16 +27,11 @@ static int send_mtree(server_t *sv, blk_id_t blk_id)
 		node_id = mtree_parent(node_id);
 
 		flags = (node_id == 0 ? 0 : MSG_MORE);
-		ret = send(sv->sock_fd, node, sizeof*(node), flags);
-
-		if (ret != sizeof*(node))
-		{
-			perror("error: send");
-			return -1;
-		}
+		try_io(0, send, sv->sock_fd, node, sizeof*(node), flags);
 	}
 
-	return 0;
+exit:
+	return ret;
 }
 
 static int server_synccl(server_t *sv)
@@ -44,170 +39,84 @@ static int server_synccl(server_t *sv)
 	int		ret	= 0;
 	mtree_node_t *	node	= &sv->mtree->nodes[0];
 
-	ret = send(sv->sock_fd, node, sizeof*(node), 0);
+	try_io(0, send, sv->sock_fd, node, sizeof*(node), 0);
 
-	if (ret != sizeof*(node))
-	{
-		perror("error: send");
-		return -1;
-	}
-
-	return 0;
+exit:
+	return ret;
 }
 
 static int server_rd_blk(server_t *sv)
 {
 	static blk_t	null_blk;
-	int		ret;
-	int		len;
+	int		ret	= 0;
 	blk_id_t	id;
 	blk_t		blk;
 	cmd_t		cmd;
 
-	len = sizeof(id);
-	if (recv(sv->sock_fd, &id, len, MSG_WAITALL) != len)
-	{
-		perror("error: recv");
-		return -1;
-	}
-    log("read block %d\n", (int)id);
+	try_io(0, recv, sv->sock_fd, &id, sizeof(id), MSG_WAITALL);
 
-	len = sizeof(blk.data);
-	ret = lseek(sv->data_fd, (off_t) len * id, SEEK_SET);
-	if (ret == -1)
-	{
-		perror("error: lseek");
-		return -1;
-	}
+	log("read block %" PRIu64 "\n", id);
 
-	if (read(sv->data_fd, &blk.data, len) != len)
-	{
-		perror("error: read");
-		return -1;
-	}
+	try_fd(0, lseek, sv->data_fd, id * sizeof(blk.data), SEEK_SET);
+	try_io(0, read, sv->data_fd, &blk.data, sizeof(blk.data));
 
-	len = sizeof(blk_t) - sizeof(blk.data);
-	ret = lseek(sv->aead_fd, (off_t) len * id, SEEK_SET);
-	if (ret == -1)
-	{
-		perror("error: lseek");
-		return -1;
-	}
-
-	if (read(sv->aead_fd, &blk.auth, len) != len)
-	{
-		perror("error: read");
-		return -1;
-	}
+	try_fd(0, lseek, sv->aead_fd, id * sizeof(blk.extr), SEEK_SET);
+	try_io(0, read, sv->aead_fd, &blk.extr, sizeof(blk.extr));
 
 	if (memcmp(&blk, &null_blk, sizeof(null_blk)) == 0)
 	{
 		cmd = CMD_NDAT;
 
-		len = sizeof(cmd);
-		if (send(sv->sock_fd, &cmd, len, MSG_MORE) != len)
-		{
-			perror("error: read");
-			return -1;
-		}
+		try_io(0, send, sv->sock_fd, &cmd, sizeof(cmd), MSG_MORE);
 	}
 	else
 	{
 		cmd = CMD_RD_BLK;
 
-		len = sizeof(cmd);
-		if (send(sv->sock_fd, &cmd, len, MSG_MORE) != len)
-		{
-			perror("error: read");
-			return -1;
-		}
-
-		len = sizeof(blk);
-		if (send(sv->sock_fd, &blk, len, MSG_MORE) != len)
-		{
-			perror("error: send");
-			return -1;
-		}
+		try_io(0, send, sv->sock_fd, &cmd, sizeof(cmd), MSG_MORE);
+		try_io(0, send, sv->sock_fd, &blk, sizeof(blk), MSG_MORE);
 	}
 
-	ret = send_mtree(sv, id);
-	if (ret != 0)
-	{
-		return ret;
-	}
+	try_fn(0, send_mtree, sv, id);
 
-	return 0;
+exit:
+	return ret;
 }
 
 static int server_wr_blk(server_t *sv)
 {
-	int		ret;
-	int		len;
+	int		ret	= 0;
 	blk_id_t	id;
 	blk_t		blk;
 
-	ret = recv(sv->sock_fd, &id, sizeof(id), MSG_WAITALL);
-	if (ret != sizeof(id))
-	{
-		perror("error: recv");
-		return -1;
-	}
-    log("write block %d\n", (int)id);
+	try_io(0, recv, sv->sock_fd, &id, sizeof(id), MSG_WAITALL);
 
-	ret = recv(sv->sock_fd, &blk, sizeof(blk), MSG_WAITALL);
-	if (ret != sizeof(blk))
-	{
-		perror("error: recv");
-		return -1;
-	}
+	log("write block %" PRIu64 "\n", id);
 
-	len = sizeof(blk.data);
-	ret = lseek(sv->data_fd, (off_t) len * id, SEEK_SET);
-	if (ret == -1)
-	{
-		perror("error: lseek");
-		return -1;
-	}
+	try_io(0, recv, sv->sock_fd, &blk, sizeof(blk), MSG_WAITALL);
 
-	if (write(sv->data_fd, &blk.data, len) != len)
-	{
-		perror("error: write");
-		return -1;
-	}
+	try_fd(0, lseek, sv->data_fd, id * sizeof(blk.data), SEEK_SET);
+	try_io(0, write, sv->data_fd, &blk.data,
+		sizeof(blk.data));
 
-	len = sizeof(blk_t) - sizeof(blk.data);
-	ret = lseek(sv->aead_fd, (off_t) len * id, SEEK_SET);
-	if (ret == -1)
-	{
-		perror("error: lseek");
-		return -1;
-	}
-
-	if (write(sv->aead_fd, &blk.auth, len) != len)
-	{
-		perror("error: write");
-		return -1;
-	}
+	try_fd(0, lseek, sv->aead_fd, id * sizeof(blk.extr), SEEK_SET);
+	try_io(0, write, sv->aead_fd, &blk.extr, sizeof(blk.extr));
 
 	mtree_set_blk(sv->mtree, id, &blk);
+	try_fn(0, send_mtree, sv, id);
 
-	ret = send_mtree(sv, id);
-	if (ret != 0)
-	{
-		return ret;
-	}
-
-	return 0;
+exit:
+	return ret;
 }
 
 static void server_reset(server_t *sv)
 {
-	sv->sock_fd = -1;
-	sv->root_fd = -1;
-	sv->data_fd = -1;
-	sv->aead_fd = -1;
-	sv->tree_fd = -1;
-	sv->mtree = NULL;
+	sv->sock_fd	= -1;
+	sv->root_fd	= -1;
+	sv->data_fd	= -1;
+	sv->aead_fd	= -1;
+	sv->tree_fd	= -1;
+	sv->mtree	= NULL;
 }
 
 static int server_dstr(server_t *sv)
@@ -216,22 +125,27 @@ static int server_dstr(server_t *sv)
 	{
 		close(sv->sock_fd);
 	}
+
 	if (sv->root_fd != -1)
 	{
 		close(sv->root_fd);
 	}
+
 	if (sv->data_fd != -1)
 	{
 		close(sv->data_fd);
 	}
+
 	if (sv->aead_fd != -1)
 	{
 		close(sv->aead_fd);
 	}
+
 	if (sv->tree_fd != -1)
 	{
 		close(sv->tree_fd);
 	}
+
 	if (sv->mtree != NULL)
 	{
 		mtree_del(sv->mtree);
@@ -248,58 +162,18 @@ static int server_new_sys(server_t *sv)
 	node_id_t	nodes	= mtree_size_from_depth(MTREE_DEPTH);
 	blk_id_t	n_blk	= mtree_nblk_from_depth(MTREE_DEPTH);
 	blk_t		blk;
-	char		hash[MTREE_HASH_LEN];
+	hash_t		hash;
 
-	sv->data_fd = openat(sv->root_fd, "data", flags, mode);
-	if (sv->data_fd == -1)
-	{
-		perror("error: openat");
-		ret = -1;
-		goto exit;
-	}
-	ret = ftruncate(sv->data_fd, n_blk * BLK_DATA_LEN);
-	if (ret != 0)
-	{
-		perror("error: ftruncate");
-		goto exit;
-	}
+	sv->data_fd = try_fd(0, openat, sv->root_fd, "data", flags, mode);
+	try_fn(0, ftruncate, sv->data_fd, n_blk * BLK_DATA_LEN);
 
-	sv->aead_fd = openat(sv->root_fd, "aead", flags, mode);
-	if (sv->aead_fd == -1)
-	{
-		perror("error: openat");
-		ret = -1;
-		goto exit;
-	}
-	ret = ftruncate(sv->aead_fd, n_blk * (sizeof(blk_t) - BLK_DATA_LEN));
-	if (ret != 0)
-	{
-		perror("error: ftruncate");
-		goto exit;
-	}
+	sv->aead_fd = try_fd(0, openat, sv->root_fd, "aead", flags, mode);
+	try_fn(0, ftruncate, sv->aead_fd, n_blk * BLK_EXTR_LEN);
 
-	sv->tree_fd = openat(sv->root_fd, "tree", flags, mode);
-	if (sv->tree_fd == -1)
-	{
-		perror("error: openat");
-		ret = -1;
-		goto exit;
-	}
-	ret = ftruncate(sv->tree_fd, nodes * sizeof(mtree_node_t));
-	if (ret != 0)
-	{
-		perror("error: ftruncate");
-		goto exit;
-	}
+	sv->tree_fd = try_fd(0, openat, sv->root_fd, "tree", flags, mode);
+	try_fn(0, ftruncate, sv->tree_fd, nodes * sizeof(mtree_node_t));
 
-	sv->mtree = mtree_new(MTREE_DEPTH);
-	if (sv->mtree == NULL)
-	{
-		errno = ENOMEM;
-		perror("error: mtree_new");
-		ret = -1;
-		goto exit;
-	}
+	sv->mtree = try_ptr(0, mtree_new, MTREE_DEPTH);
 
 	memset(&blk, 0, sizeof(blk));
 	crypto_generichash(	(void *) &hash, sizeof(hash),
@@ -317,11 +191,6 @@ static int server_new_sys(server_t *sv)
 	mtree_rebuild(sv->mtree);
 
 exit:
-	if (ret != 0)
-	{
-		server_dstr(sv);
-	}
-
 	return ret;
 }
 
@@ -329,77 +198,33 @@ int server_start(server_t *sv, int sock_fd, const char *root_path)
 {
 	int		ret	= 0;
 	node_id_t	nodes	= mtree_size_from_depth(MTREE_DEPTH);
+	struct stat	statbuf;
 
 	server_reset(sv);
 
 	sv->sock_fd = sock_fd;
 
-	sv->root_fd = open(root_path, O_RDONLY);
-	if (sv->root_fd == -1 && errno == ENOENT)
+	if (stat(root_path, &statbuf) != 0)
 	{
-		ret = mkdir(root_path, 0700);
-		if (ret != 0)
-		{
-			perror("error: mkdir");
-			goto exit;
-		}
-
-		sv->root_fd = open(root_path, O_RDONLY);
-	}
-	if (sv->root_fd == -1)
-	{
-		perror("error: open");
-		ret = -1;
-		goto exit;
+		try_fn(0, mkdir, root_path, 0700);
 	}
 
-	sv->data_fd = openat(sv->root_fd, "data", O_RDWR);
-	if (sv->data_fd == -1 && errno == ENOENT)
-	{
-		return server_new_sys(sv);
-	}
-	if (sv->data_fd == -1)
-	{
-		perror("error: open");
-		ret = -1;
-		goto exit;
-	}
+	sv->root_fd = try_fd(0, open, root_path, O_RDONLY);
 
-	sv->aead_fd = openat(sv->root_fd, "aead", O_RDWR);
-	if (sv->aead_fd == -1)
+	if (fstatat(sv->root_fd, "data", &statbuf, 0) != 0)
 	{
-		perror("error: open");
-		ret = -1;
-		goto exit;
+		try_fn(0, server_new_sys, sv);
 	}
-
-	sv->tree_fd = openat(sv->root_fd, "tree", O_RDWR);
-	if (sv->tree_fd == -1)
+	else
 	{
-		perror("error: open");
-		ret = -1;
-		goto exit;
-	}
+		sv->data_fd = try_fd(0, openat, sv->root_fd, "data", O_RDWR);
+		sv->aead_fd = try_fd(0, openat, sv->root_fd, "aead", O_RDWR);
+		sv->tree_fd = try_fd(0, openat, sv->root_fd, "tree", O_RDWR);
 
-	sv->mtree = mtree_new(MTREE_DEPTH);
-	if (sv->mtree == NULL)
-	{
-		errno = ENOMEM;
-		perror("error: mtree_new");
-		ret = -1;
-		goto exit;
-	}
-
-	ret = read(sv->tree_fd, sv->mtree->nodes,
+		sv->mtree = try_ptr(ENOMEM, mtree_new, MTREE_DEPTH);
+		try_io(0, read, sv->tree_fd, sv->mtree->nodes,
 			nodes * sizeof(mtree_node_t));
-	if (ret != nodes * sizeof(mtree_node_t))
-	{
-		perror("error: read");
-		ret = -1;
-		goto exit;
 	}
-
-	ret = 0;
 
 exit:
 	if (ret != 0)
@@ -412,22 +237,13 @@ exit:
 
 int server_stop(server_t *sv)
 {
-	int	ret	= 0;
-	size_t	len;
+	int		ret	= 0;
 
-	if (lseek(sv->tree_fd, 0, SEEK_SET) == -1)
-	{
-		ret = -1;
-		perror("error: lseek");
-	}
+	try_fd(0, lseek, sv->tree_fd, 0, SEEK_SET);
+	try_io(0, write, sv->tree_fd, &sv->mtree->nodes,
+		mtree_size(sv->mtree) * sizeof*(sv->mtree->nodes));
 
-	len = mtree_size(sv->mtree) * sizeof*(sv->mtree->nodes);
-	if (write(sv->tree_fd, &sv->mtree->nodes, len) != len)
-	{
-		ret = -1;
-		perror("error: write");
-	}
-
+exit:
 	server_dstr(sv);
 
 	return ret;
@@ -435,36 +251,34 @@ int server_stop(server_t *sv)
 
 int server_run(server_t *sv)
 {
-	int	ret;
+	int	ret	= 0;
 	cmd_t	cmd;
 
 	for (;;)
 	{
 		errno = 0;
-
 		ret = recv(sv->sock_fd, &cmd, sizeof(cmd), MSG_WAITALL);
-
-		if (ret == 0 && errno == 0)
-		{
-			return 0;
-		}
 
 		if (ret != sizeof(cmd))
 		{
-			perror("error: recv");
-			return -1;
+			if (errno == 0)
+			{
+				break;
+			}
+			else
+			{
+				fail_fn(0, recv);
+			}
 		}
 
 		switch (cmd)
 		{
-			case CMD_SYNC	: ret = server_synccl(sv);	break;
-			case CMD_RD_BLK	: ret = server_rd_blk(sv);	break;
-			case CMD_WR_BLK	: ret = server_wr_blk(sv);	break;
-		}
-
-		if (ret != 0)
-		{
-			return ret;
+			case CMD_SYNC	: try_fn(0, server_synccl, sv);	break;
+			case CMD_RD_BLK	: try_fn(0, server_rd_blk, sv);	break;
+			case CMD_WR_BLK	: try_fn(0, server_wr_blk, sv);	break;
 		}
 	}
+
+exit:
+	return ret;
 }

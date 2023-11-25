@@ -1,7 +1,9 @@
 .clangd
 
 /client/client
+/client/client.d
 /server/server
+/server/server.d
 
 /data/
 /mnt/

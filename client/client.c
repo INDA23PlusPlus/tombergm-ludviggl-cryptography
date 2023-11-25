@@ -11,65 +11,37 @@
 #include <sodium.h>
 #include <blk.h>
 #include <cmd.h>
+#include <err.h>
+#include <mtree.h>
 #include "cache.h"
 #include "client.h"
-#include "err.h"
 #include "fs.h"
-#include "mtree.h"
 
-static int update_top(client_t *cl, char (*hash)[MTREE_HASH_LEN])
+static int update_top(client_t *cl, hash_t *hash)
 {
-	int	ret;
+	int ret = 0;
 
-	ret = lseek(cl->hash_fd, 0, SEEK_SET);
-	if (ret == -1)
-	{
-		perror("error: lseek");
-		return -1;
-	}
+	try_fd(0, lseek, cl->hash_fd, 0, SEEK_SET);
+	try_io(0, write, cl->hash_fd, hash, sizeof*(hash));
 
-	ret = write(cl->hash_fd, hash, sizeof*(hash));
-	if (ret != sizeof*(hash))
-	{
-		perror("error: write");
-		return -1;
-	}
-
-	return 0;
+exit:
+	return ret;
 }
 
-static int verify_top(client_t *cl, char (*hash)[MTREE_HASH_LEN])
+static int verify_top(client_t *cl, hash_t *hash)
 {
-	int	ret;
-	char	buf[MTREE_HASH_LEN];
+	int	ret = 0;
+	hash_t	buf;
 
-	ret = lseek(cl->hash_fd, 0, SEEK_SET);
-	if (ret == -1)
-	{
-		perror("error: lseek");
-		return -1;
-	}
+	try_fd(0, lseek, cl->hash_fd, 0, SEEK_SET);
+	try_io(0, read, cl->hash_fd, buf, sizeof(buf));
+	try_fn(0, memcmp, buf, hash, sizeof*(hash));
 
-	ret = read(cl->hash_fd, buf, sizeof(buf));
-	if (ret != sizeof(buf))
-	{
-		perror("error: read");
-		return -1;
-	}
-
-	ret = memcmp(buf, hash, sizeof*(hash));
-	if (ret != 0)
-	{
-		errno = EBADMSG;
-		perror("error: memcmp");
-		return -1;
-	}
-
-	return 0;
+exit:
+	return ret;
 }
 
-static int compute_top(client_t *cl, blk_t *blk, blk_id_t blk_id,
-			char (*hash)[MTREE_HASH_LEN])
+static int compute_top(client_t *cl, blk_t *blk, blk_id_t blk_id, hash_t *hash)
 {
 	int		ret	= 0;
 	node_id_t	node_id	= mtree_blk_from_depth(MTREE_DEPTH, blk_id);
@@ -80,17 +52,11 @@ static int compute_top(client_t *cl, blk_t *blk, blk_id_t blk_id,
 
 	while (node_id != 0)
 	{
-		char	pair[2][MTREE_HASH_LEN];
+		hash_t	pair[2];
 		int	node_par = (node_id ^ 1) & 1;
 
-		ret = recv(cl->sock_fd, pair[node_par ^ 1], sizeof*(pair),
-				MSG_WAITALL);
-
-		if (ret != sizeof*(pair))
-		{
-			perror("error: recv");
-			return -1;
-		}
+		try_io(0, recv, cl->sock_fd, pair[node_par ^ 1], sizeof*(pair),
+			MSG_WAITALL);
 
 		memcpy(pair[node_par], hash, sizeof*(pair));
 
@@ -101,7 +67,8 @@ static int compute_top(client_t *cl, blk_t *blk, blk_id_t blk_id,
 		node_id = mtree_parent(node_id);
 	}
 
-	return 0;
+exit:
+	return ret;
 }
 
 static int client_reset(client_t *cl)
@@ -123,24 +90,29 @@ static int client_dstr(client_t *cl)
 		cache_flush(cl->sb_cache);
 		cache_del(cl->sb_cache);
 	}
+
 	if (cl->dir_cache != NULL)
 	{
 		cache_flush(cl->dir_cache);
 		cache_del(cl->dir_cache);
 	}
+
 	if (cl->reg_cache != NULL)
 	{
 		cache_flush(cl->reg_cache);
 		cache_del(cl->reg_cache);
 	}
+
 	if (cl->sock_fd != -1)
 	{
 		close(cl->sock_fd);
 	}
+
 	if (cl->root_fd != -1)
 	{
 		close(cl->root_fd);
 	}
+
 	if (cl->hash_fd != -1)
 	{
 		close(cl->hash_fd);
@@ -154,182 +126,82 @@ static int client_new_sys(client_t *cl)
 	int	ret	= 0;
 	int	flags	= O_RDWR | O_CREAT | O_EXCL;
 	mode_t	mode	= 0600;
-	cmd_t	cmd;
-	char	hash[MTREE_HASH_LEN];
+	cmd_t	cmd	= CMD_SYNC;
+	hash_t	hash;
 
-	cl->hash_fd = openat(cl->root_fd, "hash", flags, mode);
-	if (cl->hash_fd == -1)
-	{
-		perror("error: openat");
-		ret = -1;
-		goto exit;
-	}
-	ret = ftruncate(cl->hash_fd, sizeof(hash));
-	if (ret != 0)
-	{
-		perror("error: ftruncate");
-		goto exit;
-	}
-
-	cmd = CMD_SYNC;
-	ret = send(cl->sock_fd, &cmd, sizeof(cmd), 0);
-	if (ret != sizeof(cmd))
-	{
-		perror("error: send");
-		ret = -1;
-		goto exit;
-	}
-
-	ret = recv(cl->sock_fd, &hash, sizeof(hash), MSG_WAITALL);
-	if (ret != sizeof(hash))
-	{
-		perror("error: recv");
-		ret = -1;
-		goto exit;
-	}
-
-	ret = update_top(cl, &hash);
-	if (ret != 0)
-	{
-		goto exit;
-	}
-
-    ret = fs_init(cl, 4);
-    if (ret != 0)
-    {
-        ret = -1;
-        goto exit;
-    }
-
-	ret = 0;
+	cl->hash_fd = try_fd(0, openat, cl->root_fd, "hash", flags, mode);
+	try_fn(0, ftruncate, cl->hash_fd, sizeof(hash));
+	try_io(0, send, cl->sock_fd, &cmd, sizeof(cmd), 0);
+	try_io(0, recv, cl->sock_fd, &hash, sizeof(hash), MSG_WAITALL);
+	try_fn(0, update_top, cl, &hash);
+	try_fn(0, fs_init, cl, 4);
 
 exit:
-	if (ret != 0)
-	{
-		client_dstr(cl);
-	}
-
 	return ret;
 }
 
 int client_start(client_t *cl, const char *host, const char *root_path,
 		const char *pw)
 {
-	int			ret		= 0;
-	struct protoent *	tcp		= NULL;
-	struct addrinfo *	addrinfo	= NULL;
+	int			ret				= 0;
+	struct protoent *	tcp				= NULL;
+	struct addrinfo *	addrinfo			= NULL;
+	char			salt[crypto_pwhash_SALTBYTES]	= { 0 };
+	struct stat		statbuf;
 
 	client_reset(cl);
 
 	if (sodium_init() < 0)
 	{
-		fprintf(stderr, "error: sodium_init failed");
-		ret = -1;
-		goto exit;
+		fail_fn(0, sodium_init);
 	}
 
-	tcp = getprotobyname("tcp");
-	if (tcp == NULL)
-	{
-		perror("error: getprotobyname");
-		ret =  -1;
-		goto exit;
-	}
+	tcp = try_ptr(0, getprotobyname, "tcp");
 
-	cl->sock_fd = socket(AF_INET, SOCK_STREAM, tcp->p_proto);
-	if (cl->sock_fd == -1)
-	{
-		perror("error: socket");
-		ret =  -1;
-		goto exit;
-	}
+	cl->sock_fd = try_fd(0, socket, AF_INET, SOCK_STREAM, tcp->p_proto);
 
-	ret = getaddrinfo(host, "1311", NULL, &addrinfo);
-	if (ret != 0)
-	{
-		fprintf(stderr, "error: hostname lookup failed\n");
-		goto exit;
-	}
+	try_fn(0, getaddrinfo, host, "1311", NULL, &addrinfo);
+	try_fn(0, connect, cl->sock_fd,
+		addrinfo->ai_addr, addrinfo->ai_addrlen);
 
-	ret = connect(cl->sock_fd, addrinfo->ai_addr, addrinfo->ai_addrlen);
-	freeaddrinfo(addrinfo);
-
-	if (ret != 0)
-	{
-		perror("error: connect");
-		ret =  -1;
-		goto exit;
-	}
-
-	char salt[crypto_pwhash_SALTBYTES] = { 0 };
-
-	ret = crypto_pwhash(	(void *) cl->key, sizeof(cl->key),
-				(void *) pw     , strlen(pw   ),
-				(void *) salt   ,
-				crypto_pwhash_OPSLIMIT_INTERACTIVE,
-				crypto_pwhash_MEMLIMIT_INTERACTIVE,
-				crypto_pwhash_ALG_DEFAULT);
-	if (ret != 0)
-	{
-		errno = ENOMEM;
-		perror("error: crypto_pwhash");
-		ret =  -1;
-		goto exit;
-	}
+	try_fn(ENOMEM, crypto_pwhash,	(void *) cl->key, sizeof(cl->key),
+					(void *) pw     , strlen(pw   ),
+					(void *) salt   ,
+					crypto_pwhash_OPSLIMIT_INTERACTIVE,
+					crypto_pwhash_MEMLIMIT_INTERACTIVE,
+					crypto_pwhash_ALG_DEFAULT);
 
 	randombytes_buf(cl->salt, sizeof(cl->salt));
 
-	cl->sb_cache	= cache_new(cl, 4);
-	cl->dir_cache	= cache_new(cl, 4);
-	cl->reg_cache	= cache_new(cl, 4);
+	cl->sb_cache	= try_ptr(ENOMEM, cache_new, cl, 4);
+	cl->dir_cache	= try_ptr(ENOMEM, cache_new, cl, 4);
+	cl->reg_cache	= try_ptr(ENOMEM, cache_new, cl, 4);
 
-	if (	cl->sb_cache == NULL	||
-		cl->dir_cache == NULL	||
-		cl->reg_cache == NULL	)
+	if (stat(root_path, &statbuf) != 0)
 	{
-		errno = ENOMEM;
-		perror("error: cache_new");
-		ret = -1;
-		goto exit;
+		try_fn(0, mkdir, root_path, 0700);
 	}
 
-	cl->root_fd = open(root_path, O_RDONLY);
-	if (cl->root_fd == -1 && errno == ENOENT)
-	{
-		ret = mkdir(root_path, 0700);
-		if (ret != 0)
-		{
-			perror("error: mkdir");
-			goto exit;
-		}
+	cl->root_fd = try_fd(0, open, root_path, O_RDONLY);
 
-		cl->root_fd = open(root_path, O_RDONLY);
-	}
-	if (cl->root_fd == -1)
+	if (fstatat(cl->root_fd, "hash", &statbuf, 0) != 0)
 	{
-		perror("error: open");
-		ret = -1;
-		goto exit;
+		try_fn(0, client_new_sys, cl);
 	}
-
-	cl->hash_fd = openat(cl->root_fd, "hash", O_RDWR);
-	if (cl->hash_fd == -1 && errno == ENOENT)
+	else
 	{
-		return client_new_sys(cl);
+		cl->hash_fd = try_fd(0, openat, cl->root_fd, "hash", O_RDWR);
 	}
-	if (cl->hash_fd == -1)
-	{
-		perror("error: open");
-		ret = -1;
-		goto exit;
-	}
-
-	ret = 0;
 
 exit:
 	if (ret != 0)
 	{
 		client_dstr(cl);
+	}
+
+	if (addrinfo != NULL)
+	{
+		freeaddrinfo(addrinfo);
 	}
 
 	return ret;
@@ -337,34 +209,24 @@ exit:
 
 int client_stop(client_t *cl)
 {
-	return client_dstr(cl);
+	int	ret	= 0;
+
+	ret = client_flush_all(cl);
+
+	client_dstr(cl);
+
+	return ret;
 }
 
 int client_rd_blk(client_t *cl, blk_t *blk, blk_id_t id)
 {
-	int	ret;
-	cmd_t	cmd = CMD_RD_BLK;
+	int	ret	= 0;
+	cmd_t	cmd	= CMD_RD_BLK;
+	hash_t	hash;
 
-	ret = send(cl->sock_fd, &cmd, sizeof(cmd), MSG_MORE);
-	if (ret != sizeof(cmd))
-	{
-		perror("error: send");
-		return -1;
-	}
-
-	ret = send(cl->sock_fd, &id, sizeof(id), 0);
-	if (ret != sizeof(id))
-	{
-		perror("error: send");
-		return -1;
-	}
-
-	ret = recv(cl->sock_fd, &cmd, sizeof(cmd), MSG_WAITALL);
-	if (ret != sizeof(cmd))
-	{
-		perror("error: recv");
-		return -1;
-	}
+	try_io(0, send, cl->sock_fd, &cmd, sizeof(cmd), MSG_MORE);
+	try_io(0, send, cl->sock_fd, &id, sizeof(id), 0);
+	try_io(0, recv, cl->sock_fd, &cmd, sizeof(cmd), MSG_WAITALL);
 
 	if (cmd == CMD_NDAT)
 	{
@@ -372,37 +234,20 @@ int client_rd_blk(client_t *cl, blk_t *blk, blk_id_t id)
 	}
 	else if (cmd == CMD_RD_BLK)
 	{
-		ret = recv(cl->sock_fd, blk, sizeof*(blk), MSG_WAITALL);
-		if (ret != sizeof*(blk))
-		{
-			perror("error: recv");
-			return -1;
-		}
+		try_io(0, recv, cl->sock_fd, blk, sizeof*(blk), MSG_WAITALL);
 	}
 	else
 	{
-		errno = EINVAL;
-		perror("error: client_rd_blk");
-		return -1;
+		fail_fn(EINVAL, __func__);
 	}
 
-	char hash[MTREE_HASH_LEN];
-	ret = compute_top(cl, blk, id, &hash);
-	if (ret != 0)
-	{
-		return ret;
-	}
-
-	ret = verify_top(cl, &hash);
-	if (ret != 0)
-	{
-		return ret;
-	}
+	try_fn(0, compute_top, cl, blk, id, &hash);
+	try_fn(0, verify_top, cl, &hash);
 
 	if (cmd == CMD_RD_BLK)
 	{
 		ret = blk_decrypt(
-			(void *) blk->data, NULL,
+			(void *) blk->data, 	NULL,
 			NULL,
 			(void *) blk->data,	sizeof(blk->data) +
 						sizeof(blk->auth),
@@ -411,69 +256,45 @@ int client_rd_blk(client_t *cl, blk_t *blk, blk_id_t id)
 			(void *) cl->key);
 	}
 
-	return 0;
+exit:
+	return ret;
 }
 
 int client_wr_blk(client_t *cl, blk_t *blk, blk_id_t id)
 {
-	int ret;
+	int	ret	= 0;
+	cmd_t	cmd	= CMD_WR_BLK;
+	hash_t	hash;
 
-	cmd_t cmd = CMD_WR_BLK;
-
-	ret = send(cl->sock_fd, &cmd, sizeof(cmd), MSG_MORE);
-	if (ret != sizeof(cmd))
-	{
-		perror("error: send");
-		return -1;
-	}
-
-	ret = send(cl->sock_fd, &id, sizeof(id), MSG_MORE);
-	if (ret != sizeof(id))
-	{
-		perror("error: send");
-		return -1;
-	}
+	try_io(0, send, cl->sock_fd, &cmd, sizeof(cmd), MSG_MORE);
+	try_io(0, send, cl->sock_fd, &id, sizeof(id), MSG_MORE);
 
 	memcpy(blk->salt, cl->salt, sizeof(cl->salt));
 
-	blk_encrypt(
-		(void *) blk->data, NULL,
-		(void *) blk->data, sizeof(blk->data),
-		NULL, 0,
-		NULL,
-		(void *) blk->salt,
-		(void *) cl->key);
+	blk_encrypt(	(void *) blk->data, NULL,
+			(void *) blk->data, sizeof(blk->data),
+			NULL, 0,
+			NULL,
+			(void *) blk->salt,
+			(void *) cl->key);
 
-	ret = send(cl->sock_fd, blk, sizeof*(blk), 0);
-	if (ret != sizeof*(blk))
-	{
-		perror("error: send");
-		return -1;
-	}
+	try_io(0, send, cl->sock_fd, blk, sizeof*(blk), 0);
 
-	char hash[MTREE_HASH_LEN];
-	ret = compute_top(cl, blk, id, &hash);
-	if (ret != 0)
-	{
-		return ret;
-	}
+	try_fn(0, compute_top, cl, blk, id, &hash);
+	try_fn(0, update_top, cl, &hash);
 
-	ret = update_top(cl, &hash);
-	if (ret != 0)
-	{
-		return ret;
-	}
-
-	return 0;
+exit:
+	return ret;
 }
 
 int client_flush_all(client_t *cl)
 {
-    int ret;
+	int ret = 0;
 
-    if ((ret = cache_flush(cl->sb_cache)))  return ret;
-    if ((ret = cache_flush(cl->dir_cache))) return ret;
-    if ((ret = cache_flush(cl->reg_cache))) return ret;
+	try_fn(0, cache_flush, cl->sb_cache);
+	try_fn(0, cache_flush, cl->dir_cache);
+	try_fn(0, cache_flush, cl->reg_cache);
 
-    return 0;
+exit:
+	return ret;
 }

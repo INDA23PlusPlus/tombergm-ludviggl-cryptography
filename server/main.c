@@ -7,8 +7,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <sodium.h>
+#include <err.h>
 #include "server.h"
-#include "err.h"
 
 static server_t sv;
 
@@ -21,74 +21,36 @@ int main(int argc, char *argv[])
 	socklen_t		s_addrlen;
 	const char *		root_path	= "./sv_root/";
 
-	if (argc == 1)
+	for (int i = 1; i < argc; i++)
 	{
-	}
-	else if (argc == 2)
-	{
-		if (strncmp(argv[1], "--root=", 7) == 0)
+		if (strncmp(argv[i], "--root=", 7) == 0)
 		{
-			root_path = &argv[1][7];
+			root_path = &argv[i][7];
 		}
 		else
 		{
 			fprintf(stderr, "error: invalid argument: %s\n",
-				argv[1]);
-			ret = EXIT_FAILURE;
-			goto exit;
+				argv[i]);
+			return EXIT_FAILURE;
 		}
-	}
-	else
-	{
-		fprintf(stderr, "error: invalid argument: %s\n", argv[1]);
-		ret = EXIT_FAILURE;
-		goto exit;
-
 	}
 
 	if (sodium_init() < 0)
 	{
-		fprintf(stderr, "error: sodium_init failed");
-		ret = EXIT_FAILURE;
-		goto exit;
+		fail_fn(0, sodium_init);
 	}
 
-	tcp = getprotobyname("tcp");
-	if (tcp == NULL)
-	{
-		perror("error: getprotobyname");
-		ret = EXIT_FAILURE;
-		goto exit;
-	}
+	tcp = try_ptr(0, getprotobyname, "tcp");
 
-	s_sock = socket(AF_INET, SOCK_STREAM, tcp->p_proto);
-	if (s_sock == -1)
-	{
-		perror("error: socket");
-		ret = EXIT_FAILURE;
-		goto exit;
-	}
+	s_sock = try_fd(0, socket, AF_INET, SOCK_STREAM, tcp->p_proto);
 
 	s_addr.sin_family = AF_INET;
 	s_addr.sin_port = htons(1311);
 	inet_aton("0.0.0.0", &s_addr.sin_addr);
 	s_addrlen = sizeof(s_addr);
 
-	ret = bind(s_sock, (struct sockaddr *) &s_addr, s_addrlen);
-	if (ret != 0)
-	{
-		perror("error: bind");
-		ret = EXIT_FAILURE;
-		goto exit;
-	}
-
-	ret = listen(s_sock, 0);
-	if (ret != 0)
-	{
-		perror("error: listen");
-		ret = EXIT_FAILURE;
-		goto exit;
-	}
+	try_fn(0, bind, s_sock, (struct sockaddr *) &s_addr, s_addrlen);
+	try_fn(0, listen, s_sock, 0);
 
 	for (;;)
 	{
@@ -97,47 +59,25 @@ int main(int argc, char *argv[])
 		socklen_t		c_addrlen;
 
 		c_addrlen = sizeof(c_addr);
-		c_sock = accept(s_sock, (struct sockaddr *) &c_addr,
+		c_sock = try_fd(0, accept, s_sock, (struct sockaddr *) &c_addr,
 				&c_addrlen);
 
-        log("client connected\n");
+		log("client connected\n");
 
-		if (c_sock == -1)
-		{
-			perror("error: accept");
-			ret = EXIT_FAILURE;
-			goto exit;
-		}
+		try_fn(0, server_start, &sv, c_sock, root_path);
+		try_fn(0, server_run, &sv);
 
-		ret = server_start(&sv, c_sock, root_path);
-		if (ret != 0)
-		{
-			close(c_sock);
-			ret = EXIT_FAILURE;
-			goto exit;
-		}
+		log("client disconnected\n");
 
-		ret = server_run(&sv);
-		if (ret != 0)
-		{
-			server_stop(&sv);
-			ret = EXIT_FAILURE;
-			goto exit;
-		}
-
-        log("client disconnected\n");
-
-		ret = server_stop(&sv);
-		if (ret != 0)
-		{
-			ret = EXIT_FAILURE;
-			goto exit;
-		}
+		try_fn(0, server_stop, &sv);
 	}
 
-	ret = EXIT_SUCCESS;
-
 exit:
+	if (ret != EXIT_SUCCESS)
+	{
+		ret = EXIT_FAILURE;
+	}
+
 	if (s_sock != -1)
 	{
 		close(s_sock);
