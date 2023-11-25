@@ -7,7 +7,7 @@
 
 #define SUPER_ID 0
 
-#define indent(idt) for (unsigned __i = 0; __i < idt; __i++) log("  ")
+#define indent(idt) for (unsigned __i = 0; __i < idt; __i++) printf("  ")
 
 #define verify_ptr(ptr)\
     ({\
@@ -506,13 +506,13 @@ static int fs_dump_dir(client_t *cl, unsigned dir, unsigned idt)
 {
     fs_dir_t *dir_ptr = verify_ptr(cache_get_blk(cl->dir_cache, dir));
 
-    for (unsigned i = 0; i < dir_ptr->entry_count; i++)
+    for (unsigned i = 0; i < DIR_MAX_ENTRIES; i++)
     {
         fs_dir_entry_t *entry = &dir_ptr->entries[i];
 
         if (entry->used) {
             indent(idt);
-            log("%s, block=%d, type=%s\n",
+            printf("%s, block=%d, type=%s\n",
                 entry->name,
                 entry->id,
                 entry->type == FS_DIR ? "dir" : "file");
@@ -522,7 +522,7 @@ static int fs_dump_dir(client_t *cl, unsigned dir, unsigned idt)
                 for (unsigned j = 0; j < file_ptr->block_count; j++)
                 {
                     indent(idt + 1);
-                    log("%d: %d\n", j, file_ptr->blocks[j]);
+                    printf("%d: %d\n", j, file_ptr->blocks[j]);
                 }
             }
             else
@@ -539,6 +539,7 @@ static int fs_dump_dir(client_t *cl, unsigned dir, unsigned idt)
 int fs_dump(client_t *cl)
 {
     fs_super_t *super = verify_ptr(cache_get_blk(cl->sb_cache, SUPER_ID));
-    log("root");
+    log("file system dump:\n");
+    printf("root\n");
     return fs_dump_dir(cl, super->root, 0);
 }
