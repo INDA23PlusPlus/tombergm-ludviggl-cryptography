@@ -71,6 +71,7 @@ int fs_get_file_size(client_t *cl, unsigned id, unsigned *size);
 int fs_truncate_file(client_t *cl, unsigned id, unsigned size);
 int fs_delete_dir(client_t *cl, unsigned id);
 int fs_delete_file(client_t *cl, unsigned id);
+int fs_dump(client_t *cl);
 unsigned fs_get_root(client_t *cl);
 
 #endif

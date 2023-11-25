@@ -7,6 +7,8 @@
 
 #define SUPER_ID 0
 
+#define indent(idt) for (unsigned __i = 0; __i < idt; __i++) log("  ")
+
 #define verify_ptr(ptr)\
     ({\
         void *__ptr = ptr;\
@@ -498,4 +500,45 @@ int fs_get_file_size(client_t *cl, unsigned id, unsigned *size)
     fs_file_t *file = verify_ptr(cache_get_blk(cl->dir_cache, id));
     *size = file->size;
     return 0;
+}
+
+static int fs_dump_dir(client_t *cl, unsigned dir, unsigned idt)
+{
+    fs_dir_t *dir_ptr = verify_ptr(cache_get_blk(cl->dir_cache, dir));
+
+    for (unsigned i = 0; i < dir_ptr->entry_count; i++)
+    {
+        fs_dir_entry_t *entry = &dir_ptr->entries[i];
+
+        if (entry->used) {
+            indent(idt);
+            log("%s, block=%d, type=%s\n",
+                entry->name,
+                entry->id,
+                entry->type == FS_DIR ? "dir" : "file");
+            if (entry->type == FS_FILE)
+            {
+                fs_file_t *file_ptr = verify_ptr(cache_get_blk(cl->dir_cache, entry->id));
+                for (unsigned j = 0; j < file_ptr->block_count; j++)
+                {
+                    indent(idt + 1);
+                    log("%d: %d\n", j, file_ptr->blocks[j]);
+                }
+            }
+            else
+            {
+                int ret = fs_dump_dir(cl, entry->id, idt + 1);
+                if (ret != 0) return ret;
+            }
+        }
+    }
+
+    return 0;
+}
+
+int fs_dump(client_t *cl)
+{
+    fs_super_t *super = verify_ptr(cache_get_blk(cl->sb_cache, SUPER_ID));
+    log("root");
+    return fs_dump_dir(cl, super->root, 0);
 }
