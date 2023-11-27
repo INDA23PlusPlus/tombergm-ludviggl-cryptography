@@ -87,19 +87,16 @@ static int client_dstr(client_t *cl)
 {
 	if (cl->sb_cache != NULL)
 	{
-		cache_flush(cl->sb_cache);
 		cache_del(cl->sb_cache);
 	}
 
 	if (cl->dir_cache != NULL)
 	{
-		cache_flush(cl->dir_cache);
 		cache_del(cl->dir_cache);
 	}
 
 	if (cl->reg_cache != NULL)
 	{
-		cache_flush(cl->reg_cache);
 		cache_del(cl->reg_cache);
 	}
 
